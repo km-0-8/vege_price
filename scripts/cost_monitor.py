@@ -404,11 +404,11 @@ class CostMonitor:
                     
                     # ログ出力
                     if usage_data.alert_level == "EMERGENCY":
-                        self.logger.error(f"🚨 EMERGENCY: {alert['message']}")
+                        self.logger.error(f"[EMERGENCY] {alert['message']}")
                     elif usage_data.alert_level == "CRITICAL":
-                        self.logger.warning(f"⚠️ CRITICAL: {alert['message']}")
+                        self.logger.warning(f"[CRITICAL] {alert['message']}")
                     elif usage_data.alert_level == "WARNING":
-                        self.logger.warning(f"⚡ WARNING: {alert['message']}")
+                        self.logger.warning(f"[WARNING] {alert['message']}")
             
             # 使用量データを保存
             self.save_usage_to_bigquery(usage_data_list)

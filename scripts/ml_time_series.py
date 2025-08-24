@@ -19,7 +19,7 @@ import joblib
 from dotenv import load_dotenv
 import psutil
 
-# 条件付きインポート
+# ML ライブラリの可用性チェック
 try:
     import tensorflow as tf
     from tensorflow.keras.models import Sequential, load_model
@@ -54,7 +54,7 @@ except ImportError:
     logging.warning("Matplotlib/Seaborn not available - plotting will be disabled")
     PLOTTING_AVAILABLE = False
 
-# 統合ログ設定
+# ログ設定
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s:%(lineno)d - %(message)s",
@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TimeSeriesConfig:
-    """時系列予測設定"""
+    # 時系列予測設定
     project_id: str
     dataset_prefix: str = "vege"
     environment: str = "dev"
@@ -101,7 +101,7 @@ class TimeSeriesConfig:
     
     @classmethod
     def from_env(cls) -> 'TimeSeriesConfig':
-        """環境変数から設定を作成"""
+        # 環境変数から設定を作成
         load_dotenv()
         
         project_id = os.getenv("GCP_PROJECT_ID")
@@ -127,7 +127,7 @@ class TimeSeriesConfig:
 
 @dataclass
 class ModelResult:
-    """時系列モデル評価結果"""
+    # 時系列モデル評価結果
     model_name: str
     mae: float              # Mean Absolute Error（円）
     mape: float             # Mean Absolute Percentage Error（%）
@@ -148,12 +148,12 @@ class ModelResult:
     
     @property
     def primary_score(self) -> float:
-        """主要評価スコア（低いほど良い）- MASEを使用"""
+        # 主要評価スコア（低いほど良い）- MASEを使用
         return self.mase
     
     @property 
     def performance_grade(self) -> str:
-        """性能グレード判定"""
+        # 性能グレード判定
         if self.mase < 0.5:
             return "EXCELLENT"  # ナイーブ予測の半分以下の誤差
         elif self.mase < 0.8:
@@ -166,7 +166,7 @@ class ModelResult:
             return "VERY_POOR"  # ナイーブ予測より大幅に悪い
 
 class EnhancedTimeSeriesPricePrediction:
-    """改善された時系列野菜価格予測クラス"""
+    # 改善された時系列野菜価格予測クラス
     
     def __init__(self, config: TimeSeriesConfig):
         self.config = config
@@ -209,22 +209,21 @@ class EnhancedTimeSeriesPricePrediction:
             self.logger.warning(f"GPU設定エラー: {e}")
     
     def _calculate_timeseries_metrics(self, y_true: np.ndarray, y_pred: np.ndarray, y_naive: np.ndarray) -> Dict[str, float]:
-        """時系列予測に適した評価指標を計算"""
+        # 時系列予測評価指標（MAE/MAPE/sMAPE/MASE/RMSE/R²）を計算
         try:
-            # 基本指標
+            # 基本誤差指標
             mae = np.mean(np.abs(y_true - y_pred))
             mse = np.mean((y_true - y_pred) ** 2)
             rmse = np.sqrt(mse)
             
-            # MAPE (Mean Absolute Percentage Error)
-            # ゼロ除算を避けるため、極小値の場合は除外
+            # パーセンテージ誤差（ゼロ除算回避）
             non_zero_mask = np.abs(y_true) > 1e-6
             if np.any(non_zero_mask):
                 mape = np.mean(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask])) * 100
             else:
                 mape = float('inf')
             
-            # sMAPE (Symmetric MAPE) - より安定した指標
+            # 対称MAPE（より安定した指標）
             denominator = (np.abs(y_true) + np.abs(y_pred)) / 2
             non_zero_denominator = denominator > 1e-6
             if np.any(non_zero_denominator):
@@ -232,15 +231,14 @@ class EnhancedTimeSeriesPricePrediction:
             else:
                 smape = float('inf')
             
-            # MASE (Mean Absolute Scaled Error)
-            # ナイーブ予測（前期の値をそのまま使う）との比較
+            # ナイーブ予測との比較（MASE）
             naive_mae = np.mean(np.abs(y_true - y_naive))
             if naive_mae > 1e-6:
                 mase = mae / naive_mae
             else:
                 mase = float('inf')
             
-            # R² (参考値として計算)
+            # 決定係数（参考値）
             ss_res = np.sum((y_true - y_pred) ** 2)
             ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
             r2 = 1 - (ss_res / ss_tot) if ss_tot > 1e-6 else float('-inf')
@@ -268,21 +266,18 @@ class EnhancedTimeSeriesPricePrediction:
             }
         
     def evaluate_model(self, df: pd.DataFrame, model_type: str, test_size: float = 0.2) -> Optional[ModelResult]:
-        """時系列モデルのバックテスト評価を実行"""
+        # バックテスト方式でモデル性能を評価
         try:
-            # データが不足している場合はスキップ
+            # データ量チェック
             if len(df) < 10:
                 self.logger.warning(f"データ不足のため評価をスキップ: {len(df)}行")
                 return None
             
-            # 時系列データを準備と品質改善
-            ts_data = df.copy()
-            ts_data = ts_data.sort_values('ds')
-            
-            # データ品質改善
+            # データ前処理とクリーニング
+            ts_data = df.copy().sort_values('ds')
             ts_data = self._improve_data_quality(ts_data)
             
-            # 訓練・テストデータ分割（時系列順）
+            # 時系列順での訓練・テスト分割
             split_point = int(len(ts_data) * (1 - test_size))
             train_data = ts_data[:split_point].copy()
             test_data = ts_data[split_point:].copy()
@@ -295,7 +290,7 @@ class EnhancedTimeSeriesPricePrediction:
             y_true = test_data['y'].values
             y_pred = None
             
-            # モデル種別に応じた評価
+            # モデル種別に応じた予測実行
             if model_type.lower() == 'prophet' and PROPHET_AVAILABLE:
                 y_pred = self._evaluate_prophet(train_data, test_data)
             elif model_type.lower() == 'lstm' and TENSORFLOW_AVAILABLE:
@@ -310,14 +305,13 @@ class EnhancedTimeSeriesPricePrediction:
                 self.logger.warning(f"予測結果が無効: {model_type}")
                 return None
             
-            # ナイーブ予測（前期の値をそのまま使用）を計算
-            y_naive = train_data['y'].iloc[-len(y_true):].values  # 最後のlen(y_true)個の値を使用
+            # ベースライン予測（ナイーブ予測）の準備
+            y_naive = train_data['y'].iloc[-len(y_true):].values
             if len(y_naive) < len(y_true):
-                # データが足りない場合は最後の値を繰り返し
                 last_value = train_data['y'].iloc[-1]
                 y_naive = np.full(len(y_true), last_value)
             
-            # 時系列評価指標を計算
+            # 予測性能の評価
             metrics = self._calculate_timeseries_metrics(y_true, y_pred, y_naive)
             training_time = time.time() - start_time
             
@@ -343,25 +337,25 @@ class EnhancedTimeSeriesPricePrediction:
             return None
     
     def _evaluate_prophet(self, train_data: pd.DataFrame, test_data: pd.DataFrame) -> Optional[np.ndarray]:
-        """Prophet評価用の予測（強化版）"""
+        # Prophet モデルでの予測実行
         try:
-            # 野菜価格に最適化されたProphetモデル
+            # 野菜価格特性を考慮したProphet設定
             model = Prophet(
                 yearly_seasonality=True,
                 weekly_seasonality=False,
                 daily_seasonality=False,
-                seasonality_mode='multiplicative',  # 乗法季節性（野菜価格の特徴）
-                changepoint_prior_scale=0.05,      # トレンド変化の感度を高める
-                seasonality_prior_scale=10.0,      # 季節性を強調
-                holidays_prior_scale=10.0,         # 祝日効果を強調
-                interval_width=0.8                 # 予測区間
+                seasonality_mode='multiplicative',  # 乗法季節性
+                changepoint_prior_scale=0.05,      # トレンド変化感度
+                seasonality_prior_scale=10.0,      # 季節性強度
+                holidays_prior_scale=10.0,         # 祝日効果
+                interval_width=0.8
             )
             
-            # カスタム季節性追加（月次、四半期）
+            # カスタム季節性（月次・四半期周期）
             model.add_seasonality(name='monthly', period=30.5, fourier_order=5)
             model.add_seasonality(name='quarterly', period=91.25, fourier_order=3)
             
-            # 日本の祝日・イベント効果を追加
+            # 日本の祝日・イベント設定
             holidays = pd.DataFrame({
                 'holiday': ['新年', 'ゴールデンウィーク', 'お盆', '年末'],
                 'ds': [
@@ -374,7 +368,7 @@ class EnhancedTimeSeriesPricePrediction:
                 'upper_window': [3, 7, 2, 2]
             })
             
-            # 年ごとの祝日を追加
+            # 複数年の祝日データ生成
             all_holidays = []
             for year in range(2021, 2027):
                 year_holidays = holidays.copy()
@@ -383,7 +377,7 @@ class EnhancedTimeSeriesPricePrediction:
             holidays_df = pd.concat(all_holidays, ignore_index=True)
             model.holidays = holidays_df
             
-            # 外部変数の改良追加
+            # 外部回帰変数の設定
             regressors_added = []
             if 'avg_temperature' in train_data.columns and train_data['avg_temperature'].notna().sum() > 0:
                 model.add_regressor('avg_temperature', standardize=True)
@@ -393,21 +387,20 @@ class EnhancedTimeSeriesPricePrediction:
                 model.add_regressor('total_precipitation', standardize=True)
                 regressors_added.append('total_precipitation')
             
-            # 価格変動率を追加特徴として利用
             if 'yoy_price_growth_rate' in train_data.columns and train_data['yoy_price_growth_rate'].notna().sum() > 0:
                 model.add_regressor('yoy_price_growth_rate', standardize=True)
                 regressors_added.append('yoy_price_growth_rate')
             
-            # 学習用データの準備（欠損値処理）
+            # 学習データの欠損値処理
             train_cols = ['ds', 'y'] + regressors_added
             train_clean = train_data[train_cols].copy()
             for col in regressors_added:
                 train_clean[col] = train_clean[col].fillna(train_clean[col].median())
             
-            # 学習実行
+            # モデル学習
             model.fit(train_clean)
             
-            # テストデータの準備
+            # テストデータの準備と予測
             test_cols = ['ds'] + regressors_added
             future = test_data[test_cols].copy()
             for col in regressors_added:
@@ -416,7 +409,6 @@ class EnhancedTimeSeriesPricePrediction:
                 else:
                     future[col] = train_clean[col].median()
             
-            # 予測実行
             forecast = model.predict(future)
             return forecast['yhat'].values
             
@@ -425,12 +417,12 @@ class EnhancedTimeSeriesPricePrediction:
             return None
     
     def _evaluate_lstm(self, train_data: pd.DataFrame, test_data: pd.DataFrame) -> Optional[np.ndarray]:
-        """LSTM評価用の予測（改良版）"""
+        # 多変量LSTM モデルでの予測実行
         try:
             if len(train_data) < self.sequence_length + 2:
                 return None
             
-            # 多変量特徴量の準備
+            # 多変量特徴量の選択
             feature_cols = ['y']
             if 'avg_temperature' in train_data.columns:
                 feature_cols.append('avg_temperature')
@@ -441,21 +433,20 @@ class EnhancedTimeSeriesPricePrediction:
             if 'seasonal_price_index' in train_data.columns:
                 feature_cols.append('seasonal_price_index')
             
-            # 欠損値処理
+            # 欠損値補完
             train_features = train_data[feature_cols].ffill().bfill()
             test_features = test_data[feature_cols].ffill().bfill()
             
-            # データ正規化（多変量）
+            # データの正規化（多変量対応）
             scaler_X = MinMaxScaler()
             scaler_y = MinMaxScaler()
             
             train_scaled = scaler_X.fit_transform(train_features)
             test_scaled = scaler_X.transform(test_features)
             
-            # 目的変数用のスケーラー
             y_train_scaled = scaler_y.fit_transform(train_features[['y']])
             
-            # シーケンスデータ作成
+            # LSTM用シーケンスデータの生成
             X_train, y_train = self._create_sequences_multivariate(train_scaled, y_train_scaled, self.sequence_length)
             X_test, _ = self._create_sequences_multivariate(
                 np.concatenate([train_scaled[-self.sequence_length:], test_scaled]), 
@@ -466,7 +457,7 @@ class EnhancedTimeSeriesPricePrediction:
             if len(X_train) < 10:  # 最小データ数を増やす
                 return None
             
-            # 改良されたLSTMモデル構築
+            # 多層LSTM モデルの構築
             model = Sequential([
                 LSTM(128, return_sequences=True, input_shape=(self.sequence_length, len(feature_cols))),
                 Dropout(0.3),
@@ -478,20 +469,20 @@ class EnhancedTimeSeriesPricePrediction:
                 Dense(1)
             ])
             
-            # コンパイル（AdamWオプティマイザー、学習率調整）
+            # モデルのコンパイル（Huber損失関数使用）
             model.compile(
                 optimizer=tf.keras.optimizers.AdamW(learning_rate=0.001, weight_decay=0.01),
-                loss='huber',  # 外れ値に強いHuber損失
+                loss='huber',
                 metrics=['mae']
             )
             
-            # コールバック設定
+            # 早期終了・学習率調整の設定
             callbacks = [
                 tf.keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True, monitor='loss'),
                 tf.keras.callbacks.ReduceLROnPlateau(factor=0.7, patience=5, min_lr=0.0001, monitor='loss')
             ]
             
-            # 学習実行
+            # モデル学習
             model.fit(
                 X_train, y_train, 
                 epochs=100, 
@@ -501,7 +492,7 @@ class EnhancedTimeSeriesPricePrediction:
                 validation_split=0.1
             )
             
-            # 予測実行
+            # 予測と逆正規化
             y_pred_scaled = model.predict(X_test[:len(test_data)], verbose=0)
             y_pred = scaler_y.inverse_transform(y_pred_scaled).flatten()
             
@@ -512,7 +503,7 @@ class EnhancedTimeSeriesPricePrediction:
             return None
     
     def _create_sequences_multivariate(self, data_X, data_y, seq_length):
-        """多変量LSTMのためのシーケンスデータ作成"""
+        # 多変量LSTMのためのシーケンスデータ作成
         sequences_X = []
         sequences_y = []
         for i in range(len(data_X) - seq_length):
@@ -523,7 +514,7 @@ class EnhancedTimeSeriesPricePrediction:
         return np.array(sequences_X), np.array(sequences_y)
     
     def _improve_data_quality(self, df: pd.DataFrame) -> pd.DataFrame:
-        """時系列データの品質を改善"""
+        # 時系列データの品質を改善
         try:
             data = df.copy()
             
@@ -553,14 +544,13 @@ class EnhancedTimeSeriesPricePrediction:
                     # 残った欠損値を前後の値で埋める
                     data[col] = data[col].ffill().bfill()
             
-            # 3. 価格変動の平滑化（移動平均フィルタ）
+            # 価格データの平滑化
             if 'y' in data.columns and len(data) > 6:
-                # 7日移動平均で平滑化（月次データなので控えめ）
                 data['y_smoothed'] = data['y'].rolling(window=3, center=True).mean()
                 data['y'] = data['y_smoothed'].fillna(data['y'])
                 data.drop('y_smoothed', axis=1, inplace=True)
             
-            # 4. 特徴量エンジニアリング
+            # 特徴量エンジニアリング
             if 'y' in data.columns:
                 # ラグ特徴量
                 data['y_lag1'] = data['y'].shift(1)
@@ -574,11 +564,10 @@ class EnhancedTimeSeriesPricePrediction:
                 # 価格変動率
                 data['y_pct_change'] = data['y'].pct_change()
                 
-                # 季節分解（長期データがある場合）
-                if len(data) > 24:  # 2年分のデータがある場合
+                # トレンド分解（長期データがある場合）
+                if len(data) > 24:
                     try:
                         from scipy import stats
-                        # トレンド除去
                         x = np.arange(len(data))
                         slope, intercept, _, _, _ = stats.linregress(x, data['y'])
                         trend = slope * x + intercept
@@ -587,7 +576,7 @@ class EnhancedTimeSeriesPricePrediction:
                     except:
                         pass
             
-            # 欠損値の最終チェック
+            # 最終的な欠損値処理
             data = data.ffill().bfill()
             
             return data
@@ -597,7 +586,7 @@ class EnhancedTimeSeriesPricePrediction:
             return df
     
     def _evaluate_arima(self, train_data: pd.DataFrame, test_data: pd.DataFrame) -> Optional[np.ndarray]:
-        """ARIMA評価用の予測（自動パラメータ選択）"""
+        # ARIMA評価用の予測（自動パラメータ選択）
         try:
             # 季節性ARIMAパラメータの候補
             param_combinations = [
@@ -657,7 +646,7 @@ class EnhancedTimeSeriesPricePrediction:
             return None
     
     def _create_sequences(self, data, seq_length):
-        """LSTMのためのシーケンスデータ作成"""
+        # LSTMのためのシーケンスデータ作成
         sequences = []
         targets = []
         for i in range(len(data) - seq_length):
@@ -668,7 +657,7 @@ class EnhancedTimeSeriesPricePrediction:
         return np.array(sequences), np.array(targets)
         
     def extract_time_series_data(self, item_name: str, market: Optional[str] = None, origin: Optional[str] = None) -> pd.DataFrame:
-        """特定品目の時系列データを抽出"""
+        # 特定品目の時系列データを抽出
         try:
             query = f"""
             SELECT 
@@ -727,7 +716,7 @@ class EnhancedTimeSeriesPricePrediction:
             raise
     
     def _remove_outliers(self, df: pd.DataFrame) -> pd.DataFrame:
-        """改善された外れ値除去とデータ平滑化"""
+        # 改善された外れ値除去とデータ平滑化
         try:
             if 'y' not in df.columns or len(df) < 20:
                 return df
@@ -773,7 +762,7 @@ class EnhancedTimeSeriesPricePrediction:
             return df
     
     def create_lstm_sequences(self, data: np.ndarray, target_col: int = 0, sequence_length: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray]:
-        """LSTM用のシーケンスデータを作成"""
+        # LSTM用のシーケンスデータを作成
         sequence_length = sequence_length or self.config.sequence_length
         
         if len(data) <= sequence_length:
@@ -789,7 +778,7 @@ class EnhancedTimeSeriesPricePrediction:
         return np.array(X), np.array(y)
     
     def build_lstm_model(self, input_shape: Tuple[int, int]) -> Any:
-        """LSTMモデルを構築"""
+        # LSTMモデルを構築
         if not TENSORFLOW_AVAILABLE:
             raise RuntimeError("TensorFlowが利用できません")
         
@@ -817,7 +806,7 @@ class EnhancedTimeSeriesPricePrediction:
             raise
     
     def train_lstm_model(self, df: pd.DataFrame) -> Tuple[Any, Dict[str, Any]]:
-        """LSTMモデルを訓練"""
+        # LSTMモデルを訓練
         if not TENSORFLOW_AVAILABLE:
             self.logger.warning("TensorFlowが利用できません。LSTM訓練をスキップします")
             return None, {}
@@ -952,7 +941,7 @@ class EnhancedTimeSeriesPricePrediction:
             raise
     
     def train_prophet_model(self, df: pd.DataFrame) -> Tuple[Any, Dict[str, Any]]:
-        """Prophetモデルを訓練"""
+        # Prophetモデルを訓練
         if not PROPHET_AVAILABLE:
             self.logger.warning("Prophetが利用できません。Prophet訓練をスキップします")
             return None, {}
@@ -1109,7 +1098,7 @@ class EnhancedTimeSeriesPricePrediction:
             raise
     
     def train_arima_model(self, df):
-        """ARIMAモデルを訓練"""
+        # ARIMAモデルを訓練
         print("ARIMAモデルを訓練中...")
         
         # 時系列データ準備
@@ -1146,7 +1135,7 @@ class EnhancedTimeSeriesPricePrediction:
             return None, None
     
     def predict_future(self, item_name, market=None, origin=None, months_ahead=6, model_type='prophet'):
-        """未来価格を予測"""
+        # 未来価格を予測
         if model_type not in self.models:
             raise ValueError(f"モデル {model_type} が訓練されていません")
         
@@ -1163,7 +1152,7 @@ class EnhancedTimeSeriesPricePrediction:
             raise ValueError(f"サポートされていないモデル: {model_type}")
     
     def _predict_with_prophet(self, df, months_ahead):
-        """Prophetで予測"""
+        # Prophetで予測
         model = self.models['prophet']
         
         # 未来の日付を生成（最新データ月の翌月から開始）
@@ -1213,7 +1202,7 @@ class EnhancedTimeSeriesPricePrediction:
         })
     
     def _predict_with_lstm(self, df, months_ahead):
-        """LSTMで予測"""
+        # LSTMで予測
         if 'lstm' not in self.scalers:
             raise ValueError("LSTMスケーラーが見つかりません")
         
@@ -1269,7 +1258,7 @@ class EnhancedTimeSeriesPricePrediction:
         })
     
     def _predict_with_arima(self, df, months_ahead):
-        """ARIMAで予測"""
+        # ARIMAで予測
         model = self.models['arima']
         
         # 予測実行
@@ -1298,7 +1287,7 @@ class EnhancedTimeSeriesPricePrediction:
         })
     
     def visualize_predictions(self, df, predictions, title="価格予測"):
-        """予測結果を可視化"""
+        # 予測結果を可視化
         plt.figure(figsize=(12, 6))
         
         # 実績データ
@@ -1324,7 +1313,7 @@ class EnhancedTimeSeriesPricePrediction:
         plt.show()
     
     def save_models(self, model_dir='time_series_models'):
-        """モデルを保存"""
+        # モデルを保存
         os.makedirs(model_dir, exist_ok=True)
         
         # LSTMモデル
@@ -1346,30 +1335,30 @@ class EnhancedTimeSeriesPricePrediction:
         print(f"時系列モデルを保存しました: {model_dir}/")
     
     def train_all_models(self, item_name, market=None, origin=None):
-        """全モデルを訓練"""
+        # 全モデル種（Prophet/LSTM/ARIMA）の訓練実行
         print(f"=== {item_name} の時系列予測モデル訓練 ===")
         
-        # データ抽出
+        # 時系列データの抽出
         df = self.extract_time_series_data(item_name, market, origin)
         
         results = {}
         
+        # Prophet モデルの訓練
         try:
-            # Prophet
             prophet_model, prophet_forecast = self.train_prophet_model(df)
             results['prophet'] = {'model': prophet_model, 'forecast': prophet_forecast}
         except Exception as e:
             print(f"Prophet訓練エラー: {e}")
         
+        # LSTM モデルの訓練
         try:
-            # LSTM
             lstm_model, lstm_history = self.train_lstm_model(df)
             results['lstm'] = {'model': lstm_model, 'history': lstm_history}
         except Exception as e:
             print(f"LSTM訓練エラー: {e}")
         
+        # ARIMA モデルの訓練
         try:
-            # ARIMA
             arima_model, arima_forecast = self.train_arima_model(df)
             if arima_model:
                 results['arima'] = {'model': arima_model, 'forecast': arima_forecast}
@@ -1380,24 +1369,25 @@ class EnhancedTimeSeriesPricePrediction:
 
 
 def main():
-    """メイン実行関数"""
+    # メイン実行関数（サンプル品目での予測モデル訓練）
     print("=== 野菜価格時系列予測システム ===")
     
-    # 予測システム初期化
+    # システムの初期化
     config = TimeSeriesConfig.from_env()
     predictor = EnhancedTimeSeriesPricePrediction(config)
     
-    # 対象品目（例）
+    # テスト対象品目
     target_items = ["キャベツ", "トマト", "じゃがいも"]
     
+    # 各品目のモデル訓練と予測
     for item in target_items:
         try:
             print(f"\n=== {item} の分析 ===")
             
-            # 全モデル訓練
+            # 全モデル種の訓練
             results = predictor.train_all_models(item)
             
-            # 予測実行（Prophetがある場合）
+            # Prophetモデルでの6ヶ月予測
             if 'prophet' in predictor.models:
                 predictions = predictor.predict_future(item, months_ahead=6, model_type='prophet')
                 print(f"\n{item} の6ヶ月予測:")
@@ -1408,7 +1398,7 @@ def main():
             print(f"{item} の処理でエラー: {e}")
             continue
     
-    # モデル保存
+    # 学習済みモデルの保存
     predictor.save_models()
     print("\n全モデルを保存しました")
 

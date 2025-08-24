@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# 野菜価格予測機械学習システム - 現在のデータから未来の野菜単価を予測
 import pandas as pd
 import numpy as np
 import os
@@ -128,70 +126,64 @@ class EnhancedVegetablePricePrediction:
         # BigQueryから機械学習用データを抽出
         query = f"""
         WITH enhanced_data AS (
-          SELECT 
-            pw.year,
-            pw.month,
-            pw.item_name,
-            pw.market,
-            pw.origin,
-            pw.avg_unit_price_yen,
-            pw.total_quantity_kg,
-            pw.total_amount_yen,
-            pw.yoy_price_growth_rate,
-            pw.mom_price_growth_rate,
-            pw.price_3month_moving_avg,
-            pw.price_6month_moving_avg,
-            pw.avg_temperature,
-            pw.avg_max_temperature,
-            pw.avg_min_temperature,
-            pw.total_precipitation,
-            pw.avg_wind_speed,
-            pw.total_sunshine,
-            
-            -- 時系列特徴量
-            DATE(pw.year, pw.month, 1) as date_key,
-            EXTRACT(QUARTER FROM DATE(pw.year, pw.month, 1)) as quarter,
-            
-            -- 前月の価格データ（ラグ特徴量）
-            LAG(pw.avg_unit_price_yen, 1) OVER (
-              PARTITION BY pw.item_name, pw.market, pw.origin 
-              ORDER BY pw.year, pw.month
-            ) as price_lag_1m,
-            LAG(pw.avg_unit_price_yen, 3) OVER (
-              PARTITION BY pw.item_name, pw.market, pw.origin 
-              ORDER BY pw.year, pw.month  
-            ) as price_lag_3m,
-            LAG(pw.avg_unit_price_yen, 12) OVER (
-              PARTITION BY pw.item_name, pw.market, pw.origin 
-              ORDER BY pw.year, pw.month
-            ) as price_lag_12m,
-            
-            -- 数量ラグ特徴量
-            LAG(pw.total_quantity_kg, 1) OVER (
-              PARTITION BY pw.item_name, pw.market, pw.origin 
-              ORDER BY pw.year, pw.month
-            ) as quantity_lag_1m,
-            
-            -- 季節性特徴量
-            sa.seasonal_price_index,
-            sa.seasonal_quantity_index,
-            sa.seasonality_level,
-            
-            -- アイテム特性
-            ie.price_tier,
-            ie.vegetable_category,
-            ie.seasonality as item_seasonality,
-            ie.avg_unit_price_yen as item_avg_price
-            
-          FROM `{self.config.project_id}.{self.config.dataset_prefix}_{self.config.environment}_mart.mart_price_weather` pw
-          LEFT JOIN `{self.config.project_id}.{self.config.dataset_prefix}_{self.config.environment}_mart.mart_seasonal_analysis` sa
-            ON pw.item_name = sa.item_name AND pw.month = sa.month
-          LEFT JOIN `{self.config.project_id}.{self.config.dataset_prefix}_{self.config.environment}_mart.dim_item_enhanced` ie
-            ON pw.item_name = ie.item_name
-          WHERE pw.avg_unit_price_yen IS NOT NULL
-            AND pw.avg_unit_price_yen > {self.config.min_quantity_threshold}
-            AND pw.avg_unit_price_yen < {self.config.price_outlier_threshold}
-            AND pw.total_quantity_kg > {self.config.min_quantity_threshold}
+        SELECT
+        pw.year,
+        pw.month,
+        pw.item_name,
+        pw.market,
+        pw.origin,
+        pw.avg_unit_price_yen,
+        pw.total_quantity_kg,
+        pw.total_amount_yen,
+        pw.yoy_price_growth_rate,
+        pw.mom_price_growth_rate,
+        pw.price_3month_moving_avg,
+        pw.price_6month_moving_avg,
+        pw.avg_temperature,
+        pw.avg_max_temperature,
+        pw.avg_min_temperature,
+        pw.total_precipitation,
+        pw.avg_wind_speed,
+        pw.total_sunshine,
+        -- 時系列特徴量
+        DATE(pw.year, pw.month, 1) as date_key,
+        EXTRACT(QUARTER FROM DATE(pw.year, pw.month, 1)) as quarter,
+        -- 前月の価格データ（ラグ特徴量）
+        LAG(pw.avg_unit_price_yen, 1) OVER (
+        PARTITION BY pw.item_name, pw.market, pw.origin
+        ORDER BY pw.year, pw.month
+        ) as price_lag_1m,
+        LAG(pw.avg_unit_price_yen, 3) OVER (
+        PARTITION BY pw.item_name, pw.market, pw.origin
+        ORDER BY pw.year, pw.month
+        ) as price_lag_3m,
+        LAG(pw.avg_unit_price_yen, 12) OVER (
+        PARTITION BY pw.item_name, pw.market, pw.origin
+        ORDER BY pw.year, pw.month
+        ) as price_lag_12m,
+        -- 数量ラグ特徴量
+        LAG(pw.total_quantity_kg, 1) OVER (
+        PARTITION BY pw.item_name, pw.market, pw.origin
+        ORDER BY pw.year, pw.month
+        ) as quantity_lag_1m,
+        -- 季節性特徴量
+        sa.seasonal_price_index,
+        sa.seasonal_quantity_index,
+        sa.seasonality_level,
+        -- アイテム特性
+        ie.price_tier,
+        ie.vegetable_category,
+        ie.seasonality as item_seasonality,
+        ie.avg_unit_price_yen as item_avg_price
+        FROM `{self.config.project_id}.{self.config.dataset_prefix}_{self.config.environment}_mart.mart_price_weather` pw
+        LEFT JOIN `{self.config.project_id}.{self.config.dataset_prefix}_{self.config.environment}_mart.mart_seasonal_analysis` sa
+        ON pw.item_name = sa.item_name AND pw.month = sa.month
+        LEFT JOIN `{self.config.project_id}.{self.config.dataset_prefix}_{self.config.environment}_mart.dim_item_enhanced` ie
+        ON pw.item_name = ie.item_name
+        WHERE pw.avg_unit_price_yen IS NOT NULL
+        AND pw.avg_unit_price_yen > {self.config.min_quantity_threshold}
+        AND pw.avg_unit_price_yen < {self.config.price_outlier_threshold}
+        AND pw.total_quantity_kg > {self.config.min_quantity_threshold}
         )
         SELECT *
         FROM enhanced_data
@@ -475,23 +467,21 @@ class EnhancedVegetablePricePrediction:
         
         try:
             # 最新データを取得
-            latest_data_query = f"""
-            SELECT 
-              pw.*,
-              sa.seasonal_price_index,
-              sa.seasonal_quantity_index,
-              sa.seasonality_level,
-              ie.price_tier,
-              ie.vegetable_category,
-              ie.seasonality as item_seasonality,
-              ie.avg_unit_price_yen as item_avg_price
+            latest_data_query = f"""SELECT
+            pw.*,
+            sa.seasonal_price_index,
+            sa.seasonal_quantity_index,
+            sa.seasonality_level,
+            ie.price_tier,
+            ie.vegetable_category,
+            ie.seasonality as item_seasonality,
+            ie.avg_unit_price_yen as item_avg_price
             FROM `{self.config.project_id}.{self.config.dataset_prefix}_{self.config.environment}_mart.mart_price_weather` pw
             LEFT JOIN `{self.config.project_id}.{self.config.dataset_prefix}_{self.config.environment}_mart.mart_seasonal_analysis` sa
-              ON pw.item_name = sa.item_name AND pw.month = sa.month
+            ON pw.item_name = sa.item_name AND pw.month = sa.month
             LEFT JOIN `{self.config.project_id}.{self.config.dataset_prefix}_{self.config.environment}_mart.dim_item_enhanced` ie
-              ON pw.item_name = ie.item_name
-            WHERE pw.item_name = @item_name
-            """
+            ON pw.item_name = ie.item_name
+            WHERE pw.item_name = @item_name"""
             
             query_params = [bigquery.ScalarQueryParameter("item_name", "STRING", item_name)]
             

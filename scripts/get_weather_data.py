@@ -1,14 +1,3 @@
-#!/usr/bin/env python3
-"""
-気象データ取得・処理システム
-全国観測所から野菜市場分析に必要な気象データを統合収集
-
-改善点:
-- 型ヒントとデータクラスでの設定管理
-- 包括的エラーハンドリングとログ改善
-- レート制限とリトライ機能強化
-- データ品質検証とバリデーション
-"""
 import os
 import requests
 import pandas as pd
@@ -56,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class WeatherDataConfig:
-    """気象データ取得設定"""
+    # 気象データ取得設定
     project_id: str
     gcs_bucket: str
     gcs_prefix: str
@@ -72,7 +61,7 @@ class WeatherDataConfig:
     
     @classmethod
     def from_env(cls) -> 'WeatherDataConfig':
-        """環境変数から設定を作成"""
+        # 環境変数から設定を作成
         load_dotenv()
         
         required_vars = ["GCP_PROJECT_ID", "GCS_BUCKET", "BQ_DATASET"]
@@ -96,7 +85,7 @@ class WeatherDataConfig:
 
 @dataclass
 class WeatherStationInfo:
-    """観測所情報"""
+    # 観測所情報
     station_id: str
     station_name: str
     region: str = ""
@@ -107,7 +96,7 @@ class WeatherStationInfo:
 
 @dataclass
 class ProcessingResult:
-    """処理結果データ"""
+    # 処理結果データ
     success: bool
     station_id: str
     station_name: str
@@ -123,7 +112,7 @@ class ProcessingResult:
             self.errors = []
 
 class WeatherDataProcessor:
-    """改善された気象データ処理クラス"""
+    # 改善された気象データ処理クラス
     
     def __init__(self, config: WeatherDataConfig):
         self.config = config
@@ -162,7 +151,7 @@ class WeatherDataProcessor:
         self._lock = threading.Lock()
     
     def _create_session(self) -> requests.Session:
-        """最適化されたHTTPセッションを作成"""
+        # 最適化されたHTTPセッションを作成
         session = requests.Session()
         session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -175,11 +164,11 @@ class WeatherDataProcessor:
         return session
     
     def _sleep_jitter(self) -> None:
-        """ランダムな遅延でレート制限を回避"""
+        # ランダムな遅延でレート制限を回避
         time.sleep(random.uniform(*self.config.sleep_range))
     
     def get_station_definitions(self) -> Dict[str, Dict[str, WeatherStationInfo]]:
-        """観測所定義を取得"""
+        # 観測所定義を取得
         
         # 農業重要地域優先観測所（野菜主要産地）
         agriculture_stations = {
@@ -279,7 +268,7 @@ class WeatherDataProcessor:
         }
     
     def select_target_stations(self, coverage_type: str) -> Dict[str, WeatherStationInfo]:
-        """カバレッジタイプに応じて対象観測所を選択"""
+        # カバレッジタイプに応じて対象観測所を選択
         station_definitions = self.get_station_definitions()
         
         if coverage_type not in station_definitions:
@@ -288,7 +277,7 @@ class WeatherDataProcessor:
         return station_definitions[coverage_type]
     
     def fetch_phpsessid(self) -> Optional[str]:
-        """obsdlトップページからPHPSESSIDを取得"""
+        # obsdlトップページからPHPSESSIDを取得
         try:
             self._sleep_jitter()
             response = self.session.get(
@@ -313,7 +302,7 @@ class WeatherDataProcessor:
             return None
     
     def get_hourly_element_catalog(self) -> Dict[str, str]:
-        """時別値の要素一覧を取得"""
+        # 時別値の要素一覧を取得
         try:
             self._sleep_jitter()
             
@@ -365,7 +354,7 @@ class WeatherDataProcessor:
     
     def build_weather_params(self, sid: str, station_id: str, element_ids: List[str], 
                            start_date: date, end_date: date) -> Dict[str, Any]:
-        """気象データ取得用パラメータを構築"""
+        # 気象データ取得用パラメータを構築
         element_list = [[eid, ""] for eid in element_ids]
         return {
             "PHPSESSID": sid,
@@ -393,7 +382,7 @@ class WeatherDataProcessor:
     
     def download_weather_csv(self, sid: str, station_info: WeatherStationInfo, 
                            element_ids: List[str], start_date: date, end_date: date) -> Optional[bytes]:
-        """指定期間の気象CSVデータを取得"""
+        # 指定期間の気象CSVデータを取得
         params = self.build_weather_params(sid, station_info.station_id, element_ids, start_date, end_date)
         
         for retry in range(self.config.max_retry):
@@ -453,7 +442,7 @@ class WeatherDataProcessor:
         return None
     
     def process_weather_csv(self, csv_content: bytes, station_info: WeatherStationInfo) -> pd.DataFrame:
-        """気象CSVデータを処理してDataFrameに変換"""
+        # 気象CSVデータを処理してDataFrameに変換
         
         column_mapping = {
             '気温': 'temperature',
@@ -521,7 +510,7 @@ class WeatherDataProcessor:
     
     def create_sample_weather_data(self, station_info: WeatherStationInfo, 
                                  start_date: date, end_date: date) -> pd.DataFrame:
-        """サンプル気象データを生成（API障害時の代替）"""
+        # サンプル気象データを生成（API障害時の代替）
         self.logger.info(f"サンプルデータを生成: {station_info.station_name} {start_date} - {end_date}")
         
         current = datetime.combine(start_date, datetime.min.time())
@@ -552,14 +541,14 @@ class WeatherDataProcessor:
         return pd.DataFrame(data_list)
     
     def check_existing_data(self, station_id: str, start_date: date) -> bool:
-        """GCSに既存データが存在するかチェック"""
+        # GCSに既存データが存在するかチェック
         yyyymm = f"{start_date.year:04d}{start_date.month:02d}"
         blob_path = f"{self.config.gcs_prefix}/weather_hourly_{station_id}_{yyyymm}.csv"
         blob = self.bucket.blob(blob_path)
         return blob.exists()
     
     def upload_to_gcs(self, df: pd.DataFrame, station_id: str, start_date: date) -> str:
-        """DataFrameをGCSにアップロード"""
+        # DataFrameをGCSにアップロード
         yyyymm = f"{start_date.year:04d}{start_date.month:02d}"
         blob_path = f"{self.config.gcs_prefix}/weather_hourly_{station_id}_{yyyymm}.csv"
         blob = self.bucket.blob(blob_path)
@@ -573,15 +562,13 @@ class WeatherDataProcessor:
         return blob_path
     
     def upload_to_bigquery(self, blob_path: str, station_id: str, start_date: date) -> None:
-        """GCSからBigQueryにデータロード"""
+        # GCSからBigQueryにデータロード
         
         # 既存データ削除
-        delete_query = f"""
-            DELETE FROM `{self.table_id}`
-            WHERE station_id = '{station_id}'
-            AND EXTRACT(YEAR FROM observation_datetime) = {start_date.year}
-            AND EXTRACT(MONTH FROM observation_datetime) = {start_date.month}
-        """
+        delete_query = f# DELETE FROM `{self.table_id}`
+# WHERE station_id = '{station_id}'
+# AND EXTRACT(YEAR FROM observation_datetime) = {start_date.year}
+# AND EXTRACT(MONTH FROM observation_datetime) = {start_date.month}
         
         try:
             self.bq_client.query(delete_query).result()
@@ -625,7 +612,7 @@ class WeatherDataProcessor:
         self.logger.debug(f"BigQueryロード完了: {uri}")
     
     def month_range(self, start_date: date, end_date: date) -> List[Tuple[date, date]]:
-        """start～endを月単位に分割した[(月初, 月末)]のリストを返す"""
+        # start～endを月単位に分割した[(月初, 月末)]のリストを返す
         current = date(start_date.year, start_date.month, 1)
         months = []
         
@@ -653,7 +640,7 @@ class WeatherDataProcessor:
     def process_month_data(self, sid: Optional[str], station_info: WeatherStationInfo, 
                          element_ids: List[str], start_date: date, end_date: date, 
                          use_sample: bool = False, force_update: bool = False) -> ProcessingResult:
-        """1観測所・1ヶ月分のデータを処理"""
+        # 1観測所・1ヶ月分のデータを処理
         
         total_start = datetime.now()
         target_month = f"{start_date.year:04d}-{start_date.month:02d}"
@@ -740,7 +727,7 @@ class WeatherDataProcessor:
     
     def estimate_processing_metrics(self, stations: Dict[str, WeatherStationInfo], 
                                   months_count: int) -> Dict[str, Union[int, float]]:
-        """処理メトリクス見積もり"""
+        # 処理メトリクス見積もり
         station_count = len(stations)
         total_tasks = station_count * months_count
         
@@ -766,7 +753,7 @@ class WeatherDataProcessor:
                              months: List[Tuple[date, date]], use_sample: bool, 
                              target_stations: Dict[str, WeatherStationInfo], 
                              force_update: bool = False) -> List[ProcessingResult]:
-        """観測所バッチの処理"""
+        # 観測所バッチの処理
         results = []
         total_tasks = len(target_stations) * len(months)
         start_time = datetime.now()
@@ -835,7 +822,7 @@ class WeatherDataProcessor:
         return results
     
     def _generate_processing_report(self, results: List[ProcessingResult], elapsed_time: timedelta) -> None:
-        """処理レポートを生成"""
+        # 処理レポートを生成
         successful = [r for r in results if r.success]
         failed = [r for r in results if not r.success]
         skipped = [r for r in results if r.success and r.message == "skipped"]
@@ -856,7 +843,7 @@ class WeatherDataProcessor:
                 self.logger.warning(f"  - {result.station_name} {result.target_month}: {result.message}")
 
 def main():
-    """メイン実行関数"""
+    # メイン実行関数
     parser = argparse.ArgumentParser(description="全国気象データ取得（野菜市場分析向け）")
     
     # 基本パラメータ

@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# 価格予測バッチ処理システム - GitHub Actions月次実行用
 import pandas as pd
 import numpy as np
 import os
@@ -40,10 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ═══════════════════════════════════════════════════════════════
-# ML モデル選択設定
-# ═══════════════════════════════════════════════════════════════
-# 実行するモデルを選択 (利用可能: "arima", "prophet", "lstm")
+
 ENABLED_MODELS = ["lstm"]  # 高精度なLSTMのみを使用 (必要に応じて変更)
 
 # 対象品目設定 (Noneの場合はデフォルト10品目を使用)
@@ -313,20 +308,18 @@ class EnhancedPredictionBatchProcessor:
     def get_target_items(self) -> List[str]:
         # 予測対象品目を取得
         try:
-            query = f"""
-            SELECT DISTINCT 
-              item_name,
-              COUNT(*) as data_points,
-              MIN(year) as start_year,
-              MAX(year) as end_year
-            FROM `{self.config.project_id}.{self.config.dataset_prefix}_{self.config.environment}_mart.mart_price_weather`
-            WHERE avg_unit_price_yen IS NOT NULL
-              AND year >= 2020
-            GROUP BY item_name
-            HAVING data_points >= {self.config.min_data_points}
-            ORDER BY data_points DESC
-            LIMIT {self.config.max_items}
-            """
+            query = f# SELECT DISTINCT
+# item_name,
+# COUNT(*) as data_points,
+# MIN(year) as start_year,
+# MAX(year) as end_year
+# FROM `{self.config.project_id}.{self.config.dataset_prefix}_{self.config.environment}_mart.mart_price_weather`
+# WHERE avg_unit_price_yen IS NOT NULL
+# AND year >= 2020
+# GROUP BY item_name
+# HAVING data_points >= {self.config.min_data_points}
+# ORDER BY data_points DESC
+# LIMIT {self.config.max_items}
             
             df = self.bq_client.query(query).to_dataframe()
             items = df['item_name'].tolist()

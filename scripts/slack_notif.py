@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# 野菜価格予測 Slack通知システム - BigQueryの予測結果から安い野菜を通知
-
 import pandas as pd
 import os
 import json
@@ -143,17 +140,14 @@ class EnhancedVegetablePriceNotifier:
             confidence_interval,
             prediction_reliability,
             model_r2,
+            model_mae,
             training_data_points,
             prediction_date,
             prediction_generated_at,
             ROW_NUMBER() OVER (
               PARTITION BY item_name 
               ORDER BY 
-                -- MASEが低いほど良い（ナイーブ予測より優秀）
-                CASE WHEN model_mae IS NOT NULL AND model_mae > 0 THEN model_mae ELSE 999 END ASC,
-                -- sMAPEが低いほど良い
-                CASE WHEN model_smape IS NOT NULL AND model_smape > 0 THEN model_smape ELSE 999 END ASC,
-                -- MAEが低いほど良い
+                -- MAEが低いほど良い（平均絶対誤差）
                 CASE WHEN model_mae IS NOT NULL AND model_mae > 0 THEN model_mae ELSE 999 END ASC,
                 -- 旧指標（後方互換性）
                 model_r2 DESC,
@@ -198,9 +192,7 @@ class EnhancedVegetablePriceNotifier:
             END, 0
           ) as confidence_pct,
           p.prediction_reliability,
-          ROUND(COALESCE(p.model_mae, 999), 1) as model_mase,  -- 名前はmodel_maseだが実際はMAE値を使用
           ROUND(COALESCE(p.model_mae, 999), 1) as model_mae,
-          ROUND(COALESCE(p.model_smape, 999), 1) as model_smape,
           p.training_data_points,
           p.prediction_date,
           DATE(p.prediction_generated_at) as generated_date
@@ -236,9 +228,9 @@ class EnhancedVegetablePriceNotifier:
                 # ターゲット月が含まれているか確認
                 target_month_str = f"{target_year}年{target_month:02d}月"
                 if target_month_str in unique_months:
-                    self.logger.info(f"✅ ターゲット月({target_month_str})のデータが見つかりました")
+                    self.logger.info(f"[OK] ターゲット月({target_month_str})のデータが見つかりました")
                 else:
-                    self.logger.warning(f"⚠️ ターゲット月({target_month_str})のデータがありません。利用可能: {', '.join(unique_months)}")
+                    self.logger.warning(f"[WARNING] ターゲット月({target_month_str})のデータがありません。利用可能: {', '.join(unique_months)}")
             else:
                 self.logger.warning(f"{target_year}年{target_month}月の予測データが見つかりません")
                 
@@ -283,7 +275,7 @@ class EnhancedVegetablePriceNotifier:
                         
                         # RAWテーブルにデータがある場合、dbt変換が失敗している
                         if not raw_df.empty:
-                            self.logger.error("⚠️ dbt変換エラー: RAWデータは存在するがMARTテーブルが空です")
+                            self.logger.error("[WARNING] dbt変換エラー: RAWデータは存在するがMARTテーブルが空です")
                             self.logger.error("stg_price_predictions または fact_price_predictions のdbtモデルでエラーが発生しています")
                         
                 except Exception as e:
@@ -369,19 +361,19 @@ class EnhancedVegetablePriceNotifier:
         if predictions_df.empty:
             # ML予測データがない場合の判定
             if self.config.ml_prediction_status == 'failure':
-                message_text = f"*{month_name}の価格予測処理でエラーが発生しました* ❌\n\n次回の処理実行をお待ちください。"
+                message_text = f"*{month_name}の価格予測処理でエラーが発生しました* [ERROR]\n\n次回の処理実行をお待ちください。"
             elif self.config.ml_prediction_status == 'success':
                 # ML予測は成功したがdbt変換でエラーが発生している可能性
-                message_text = f"*{month_name}の価格予測データが空です* ⚠️\n\n"
+                message_text = f"*{month_name}の価格予測データが空です*\n\n"
                 message_text += "ML予測は成功しましたが、dbt変換でエラーが発生している可能性があります。\n"
                 message_text += "データエンジニアに確認を依頼してください。"
             elif not model_info.get('available', False):
                 message_text = f"*{month_name}の価格予測データはまだ準備中です* 🔄\n\nML予測処理の完了をお待ちください。"
             else:
-                message_text = f"*{month_name}の野菜価格予測データが準備できていません* 📊\n\n予測処理の完了をお待ちください。"
+                message_text = f"*{month_name}の野菜価格予測データが準備できていません*\n\n予測処理の完了をお待ちください。"
             
             return {
-                "text": f"🥬 {month_name}の安い野菜TOP10",
+                "text": f"野菜 {month_name}の安い野菜TOP10",
                 "blocks": [
                     {
                         "type": "header",
@@ -564,9 +556,9 @@ class EnhancedVegetablePriceNotifier:
             )
             
             if success:
-                self.logger.info(f"✅ 通知送信完了: {len(predictions_df)}品目の価格低下予測")
+                self.logger.info(f"[OK] 通知送信完了: {len(predictions_df)}品目の価格低下予測")
             else:
-                self.logger.error("❌ 通知送信失敗")
+                self.logger.error("[ERROR] 通知送信失敗")
             
             self.logger.info(f"メモリ使用量: {initial_memory:.1f}MB → {current_memory:.1f}MB")
             
@@ -611,16 +603,16 @@ def main():
         result = notifier.run_notification(target_month=args.month, dry_run=args.dry_run)
         
         if result.success:
-            print(f"✅ 通知処理完了")
+            print("[OK] 通知処理完了")
             if not args.dry_run:
-                print(f"📱 Slack通知送信: {result.predictions_count}品目")
+                print(f"[Slack] 通知送信: {result.predictions_count}品目")
             exit(0)
         else:
-            print(f"❌ 通知処理失敗: {result.error or 'Unknown error'}")
+            print(f"[ERROR] 通知処理失敗: {result.error or 'Unknown error'}")
             exit(1)
             
     except Exception as e:
-        print(f"❌ エラー: {e}")
+        print(f"[ERROR] エラー: {e}")
         exit(1)
 
 

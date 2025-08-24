@@ -298,16 +298,16 @@ class EnhancedDiagramGenerator:
                 weather_collector = Python("Weather Data\nCollector")
             
             # 第3層: データ処理・変換
-            with Cluster("⚙️ Data Processing Layer", graph_attr={"style": "rounded", "bgcolor": "lightyellow", "margin": "20"}):
+            with Cluster("Data Processing Layer", graph_attr={"style": "rounded", "bgcolor": "lightyellow", "margin": "20"}):
                 market_processor = Python("Market ETL\nProcessor")
                 weather_processor = Python("Weather ETL\nProcessor")
                 
             # 第4層: クラウドストレージ
-            with Cluster("☁️ Cloud Storage Layer", graph_attr={"style": "rounded", "bgcolor": "lightcyan", "margin": "20"}):
+            with Cluster("Cloud Storage Layer", graph_attr={"style": "rounded", "bgcolor": "lightcyan", "margin": "20"}):
                 gcs_storage = GCS("Raw Data Storage\n(CSV Files)")
                 
             # 第5層: BigQuery RAW層
-            with Cluster("🗄️ BigQuery RAW Layer", graph_attr={"style": "rounded", "bgcolor": "wheat", "margin": "20"}):
+            with Cluster("BigQuery RAW Layer", graph_attr={"style": "rounded", "bgcolor": "wheat", "margin": "20"}):
                 raw_market_table = Bigquery("${BQ_TABLE}\n(Raw Data)")
                 raw_weather_table = Bigquery("weather_hourly\n(Raw Data)")
             
@@ -315,7 +315,7 @@ class EnhancedDiagramGenerator:
             dbt_engine = Dataflow("dbt Transformation\nEngine")
                 
             # 第7層: BigQuery変換済み層
-            with Cluster("📊 BigQuery Transformed Layers", graph_attr={"style": "rounded", "bgcolor": "lightpink", "margin": "20"}):
+            with Cluster("BigQuery Transformed Layers", graph_attr={"style": "rounded", "bgcolor": "lightpink", "margin": "20"}):
                 with Cluster("STG Layer", graph_attr={"style": "dotted", "bgcolor": "mistyrose"}):
                     stg_market_table = Bigquery("stg_market_raw")
                     stg_weather_table = Bigquery("stg_weather_observation")
@@ -526,12 +526,12 @@ def main():
         failed_diagrams = [r for r in results if not r.success]
         
         if successful_diagrams:
-            print("✅ 生成成功:")
+            print("[OK] 生成成功:")
             for result in successful_diagrams:
                 print(f"  - {result.diagram_name}: {result.file_path}")
         
         if failed_diagrams:
-            print("❌ 生成失敗:")
+            print("[ERROR] 生成失敗:")
             for result in failed_diagrams:
                 print(f"  - {result.diagram_name}: {result.error}")
         
@@ -539,7 +539,7 @@ def main():
             print(f"\n🎉 全ての図表が正常に生成されました！")
             return 0
         elif successful_diagrams:
-            print(f"\n⚠️ 部分的成功: {len(successful_diagrams)}/{len(results)}図表")
+            print(f"\n[WARNING] 部分的成功: {len(successful_diagrams)}/{len(results)}図表")
             return 1
         else:
             print(f"\n💥 全ての図表生成に失敗しました")
@@ -547,7 +547,7 @@ def main():
             
     except Exception as e:
         logger.error(f"図表生成中にエラーが発生しました: {e}")
-        print(f"❌ エラー: {e}")
+        print(f"[ERROR] エラー: {e}")
         print("\n[NOTE] 注意: Graphvizがシステムにインストールされていない可能性があります。")
         print("[INFO] Graphvizインストール: https://graphviz.org/download/")
         print("[INFO] pip install diagrams graphviz")
