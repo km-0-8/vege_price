@@ -1,0 +1,537 @@
+version: 2
+models:
+  - name: fact_price_predictions
+    description: "価格予測結果ファクトテーブル"
+    columns:
+      - name: prediction_key
+        description: "予測キー（サロゲートキー）"
+        tests: [unique, not_null]
+      - name: prediction_date
+        description: "予測対象日"
+        tests: [not_null]
+      - name: prediction_year
+        description: "予測対象年"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 2020, max_value: 2030}]
+      - name: prediction_month
+        description: "予測対象月"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 12}]
+      - name: prediction_quarter
+        description: "予測対象四半期"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 4}]
+      - name: prediction_season
+        description: "予測対象季節"
+        tests: [not_null, accepted_values: {values: ['春', '夏', '秋', '冬']}]
+      - name: prediction_generated_at
+        description: "予測生成日時"
+        tests: [not_null]
+      - name: forecast_horizon_days
+        description: "予測期間（日数）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: -3650, max_value: 10950}]
+      - name: item_name
+        description: "品目名"
+        tests: [not_null]
+      - name: market
+        description: "市場名"
+        tests: [not_null]
+      - name: origin
+        description: "産地"
+        tests: [not_null]
+      - name: model_type
+        description: "予測モデル種別"
+        tests: [not_null, accepted_values: {values: ['PROPHET', 'LSTM', 'ARIMA', 'RANDOM_FOREST', 'GRADIENT_BOOSTING', 'LINEAR_REGRESSION']}]
+      - name: model_version
+        description: "モデルバージョン"
+        tests: [not_null]
+      - name: predicted_price
+        description: "予測価格（円/kg）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 50000}]
+      - name: lower_bound_price
+        description: "予測価格下限"
+        tests: [dbt_utils.accepted_range: {min_value: -50000, max_value: 100000}]
+      - name: upper_bound_price
+        description: "予測価格上限"
+        tests: [dbt_utils.accepted_range: {min_value: -10000, max_value: 100000}]
+      - name: prediction_range
+        description: "予測幅"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: confidence_interval
+        description: "信頼区間"
+        tests: [dbt_utils.accepted_range: {min_value: 0, max_value: 1}]
+      - name: training_data_points
+        description: "学習データ数"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 300000}]
+      - name: training_period_start
+        description: "学習期間開始日"
+      - name: training_period_end
+        description: "学習期間終了日"
+      - name: training_period_days
+        description: "学習期間（日数）"
+        tests: [dbt_utils.accepted_range: {min_value: 365}]
+      - name: last_actual_price
+        description: "最新実績価格"
+        tests: [dbt_utils.accepted_range: {min_value: -10000, max_value: 100000}]
+      - name: last_actual_date
+        description: "最新実績日"
+      - name: prediction_lead_time_days
+        description: "予測リードタイム（日数）"
+        tests: [dbt_utils.accepted_range: {min_value: 1}]
+      - name: model_mae
+        description: "モデル平均絶対誤差"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: model_mse
+        description: "モデル平均二乗誤差"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: model_rmse
+        description: "モデル平均平方根誤差"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: model_r2
+        description: "モデル決定係数"
+        tests: [dbt_utils.accepted_range: {min_value: -1, max_value: 1}]
+      - name: data_quality_score
+        description: "データ品質スコア"
+        tests: [dbt_utils.accepted_range: {min_value: 0, max_value: 1}]
+      - name: prediction_reliability
+        description: "予測信頼性レベル"
+        tests: [accepted_values: {values: ['HIGH', 'MEDIUM', 'LOW', 'VERY_LOW']}]
+      - name: prediction_horizon_type
+        description: "予測期間タイプ"
+        tests: [accepted_values: {values: ['SHORT_TERM', 'MEDIUM_TERM', 'LONG_TERM']}]
+      - name: predicted_price_trend
+        description: "予測価格トレンド"
+        tests: [accepted_values: {values: ['PRICE_INCREASE', 'PRICE_DECREASE', 'PRICE_STABLE']}]
+      - name: predicted_price_change_pct
+        description: "予測価格変動率（%）"
+        tests: [dbt_utils.accepted_range: {min_value: -95, max_value: 500}]
+      - name: created_at
+        description: "レコード作成日時"
+        tests: [not_null]
+      - name: updated_at
+        description: "レコード更新日時"
+        tests: [not_null]
+
+  - name: mart_price_predictions_dashboard
+    description: "ダッシュボード表示用の価格予測データマート"
+    columns:
+      - name: prediction_date
+        description: "予測対象日"
+        tests: [not_null]
+      - name: item_name
+        description: "品目名"
+        tests: [not_null]
+      - name: model_type
+        description: "予測モデル種別"
+        tests: [not_null]
+      - name: predicted_price
+        description: "予測価格（円/kg）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 50000}]
+      - name: lower_bound_price
+        description: "予測価格下限"
+        tests: [dbt_utils.accepted_range: {min_value: -50000, max_value: 100000}]
+      - name: upper_bound_price
+        description: "予測価格上限"
+        tests: [dbt_utils.accepted_range: {min_value: -10000, max_value: 100000}]
+      - name: prediction_range
+        description: "予測幅"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: confidence_interval
+        description: "信頼区間"
+        tests: [dbt_utils.accepted_range: {min_value: 0, max_value: 1}]
+      - name: predicted_price_trend
+        description: "予測価格トレンド"
+        tests: [accepted_values: {values: ['PRICE_INCREASE', 'PRICE_DECREASE', 'PRICE_STABLE']}]
+      - name: predicted_price_change_pct
+        description: "予測価格変動率（%）"
+        tests: [dbt_utils.accepted_range: {min_value: -95, max_value: 500}]
+      - name: last_actual_price
+        description: "最新実績価格"
+        tests: [dbt_utils.accepted_range: {min_value: -10000, max_value: 100000}]
+      - name: prediction_horizon_type
+        description: "予測期間タイプ"
+        tests: [accepted_values: {values: ['SHORT_TERM', 'MEDIUM_TERM', 'LONG_TERM']}]
+      - name: prediction_reliability
+        description: "予測信頼性レベル"
+        tests: [accepted_values: {values: ['HIGH', 'MEDIUM', 'LOW', 'VERY_LOW']}]
+      - name: data_quality_score
+        description: "データ品質スコア"
+        tests: [dbt_utils.accepted_range: {min_value: 0.5, max_value: 1}]
+      - name: model_accuracy_rank
+        description: "モデル精度ランキング"
+        tests: [dbt_utils.accepted_range: {min_value: 1}]
+      - name: prediction_category
+        description: "予測カテゴリ"
+        tests: [accepted_values: {values: ['大幅上昇予測', '上昇予測', '安定予測', '下落予測', '大幅下落予測']}]
+      - name: overall_confidence
+        description: "総合信頼度"
+        tests: [accepted_values: {values: ['高信頼度', '中信頼度', '低信頼度']}]
+      - name: increase_consensus_pct
+        description: "上昇コンセンサス率（%）"
+        tests: [dbt_utils.accepted_range: {min_value: 0, max_value: 100}]
+      - name: decrease_consensus_pct
+        description: "下落コンセンサス率（%）"
+        tests: [dbt_utils.accepted_range: {min_value: 0, max_value: 100}]
+      - name: stable_consensus_pct
+        description: "安定コンセンサス率（%）"
+        tests: [dbt_utils.accepted_range: {min_value: 0, max_value: 100}]
+      - name: dashboard_updated_at
+        description: "ダッシュボード更新日時"
+        tests: [not_null]
+
+  - name: dim_market
+    description: "市場ディメンションテーブル"
+    columns:
+      - name: market_key
+        description: "市場キー（サロゲートキー）"
+        tests: [unique, not_null]
+      - name: market
+        description: "市場名"
+        tests: [not_null]
+
+  - name: dim_weather_station
+    description: "気象観測点ディメンションテーブル"
+    columns:
+      - name: station_key
+        description: "観測点キー（サロゲートキー）"
+        tests: [unique, not_null]
+      - name: station_id
+        description: "観測点ID"
+        tests: [not_null]
+      - name: station_name
+        description: "観測点名"
+        tests: [not_null]
+      - name: is_agriculture_priority
+        description: "農業優先観測所フラグ"
+        tests: [not_null]
+      - name: region
+        description: "地域"
+        tests: [not_null]
+      - name: major_crops
+        description: "主要作物"
+
+  - name: fact_weather_daily
+    description: "日次気象データファクトテーブル"
+    columns:
+      - name: observation_date
+        description: "観測日"
+        tests: [not_null]
+      - name: observation_year
+        description: "観測年"
+        tests: [not_null]
+      - name: observation_month
+        description: "観測月"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 12}]
+      - name: observation_day
+        description: "観測日（日）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 31}]
+      - name: station_id
+        description: "観測点ID"
+        tests: [not_null]
+      - name: avg_temperature
+        description: "平均気温（℃）"
+      - name: max_temperature
+        description: "最高気温（℃）"
+      - name: min_temperature
+        description: "最低気温（℃）"
+      - name: avg_humidity
+        description: "平均湿度（%）"
+        tests: [dbt_utils.accepted_range: {min_value: 0, max_value: 100}]
+      - name: max_precipitation_1h
+        description: "最大時間降水量（mm）"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: total_precipitation
+        description: "日降水量合計（mm）"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: avg_wind_speed
+        description: "平均風速（m/s）"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: max_wind_speed
+        description: "最大風速（m/s）"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: total_sunshine
+        description: "日照時間合計（時間）"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: station_key
+        description: "観測点キー（dim_weather_stationとの外部キー）"
+        tests: [not_null, relationships: {to: ref('dim_weather_station'), field: station_key}]
+
+
+  # ====================
+  # 新強化MARTレイヤー
+  # ====================
+  
+  - name: dim_location
+    description: "産地-観測所マッピングディメンションテーブル"
+    columns:
+      - name: location_key
+        description: "産地キー（サロゲートキー）"
+        tests: [unique, not_null]
+      - name: origin_name
+        description: "産地名"
+        tests: [not_null]
+      - name: prefecture
+        description: "都道府県"
+        tests: [not_null]
+      - name: station_id
+        description: "対応気象観測所ID"
+      - name: station_name
+        description: "気象観測所名"
+      - name: region
+        description: "地域分類"
+        tests: [not_null, accepted_values: {values: ['北海道', '東北', '関東', '中部', '近畿', '中国', '四国', '九州・沖縄', '輸入', '不明']}]
+      - name: is_agriculture_priority
+        description: "農業優先観測所フラグ"
+        tests: [not_null]
+      - name: has_weather_data
+        description: "気象データ利用可能フラグ"
+        tests: [not_null]
+
+  - name: dim_time
+    description: "時系列ディメンションテーブル"
+    columns:
+      - name: time_key
+        description: "時間キー（サロゲートキー）"
+        tests: [unique, not_null]
+      - name: year
+        description: "年"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 2020, max_value: 2030}]
+      - name: month
+        description: "月"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 12}]
+      - name: season_japanese
+        description: "季節（日本語）"
+        tests: [not_null, accepted_values: {values: ['春', '夏', '秋', '冬']}]
+      - name: quarter
+        description: "四半期"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 4}]
+      - name: fiscal_year
+        description: "年度（4月開始）"
+        tests: [not_null]
+      - name: vegetable_demand_period
+        description: "野菜需要期"
+        tests: [not_null, accepted_values: {values: ['夏野菜需要期', '冬野菜需要期', '春端境期', '秋端境期', '通常期']}]
+
+  - name: dim_item_enhanced
+    description: "強化版品目ディメンションテーブル"
+    columns:
+      - name: item_key
+        description: "品目キー（サロゲートキー）"
+        tests: [unique, not_null]
+      - name: item_name
+        description: "品目名"
+        tests: [not_null]
+      - name: major_category
+        description: "大分類"
+        tests: [not_null]
+      - name: sub_category
+        description: "中分類"
+      - name: price_tier
+        description: "価格帯分類"
+        tests: [not_null, accepted_values: {values: ['高級品', '中級品', '一般品', '低価格品']}]
+      - name: vegetable_category
+        description: "野菜分類"
+        tests: [not_null, accepted_values: {values: ['葉菜類', '果菜類', '根菜類', '芋類', '香味野菜', 'きのこ類', 'その他野菜']}]
+      - name: seasonality
+        description: "季節性"
+        tests: [not_null, accepted_values: {values: ['春野菜', '夏野菜', '秋野菜', '冬野菜', '通年野菜', '季節性不明']}]
+      - name: storage_durability
+        description: "保存性"
+        tests: [not_null, accepted_values: {values: ['長期保存可', '中期保存可', '短期保存', '保存性不明']}]
+      - name: avg_unit_price_yen
+        description: "平均単価（円/kg）"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: is_frequent_item
+        description: "頻出品目フラグ"
+        tests: [not_null]
+
+  # ====================
+  # 時系列分析マートレイヤー
+  # ====================
+
+  - name: mart_price_weather
+    description: "価格・気象統合マート（時系列分析対応版）"
+    columns:
+      - name: year
+        description: "取引年"
+        tests: [not_null]
+      - name: month
+        description: "取引月"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 12}]
+      - name: item_name
+        description: "品目名"
+        tests: [not_null]
+      - name: market
+        description: "市場名"
+        tests: [not_null]
+      - name: origin
+        description: "産地"
+        tests: [not_null]
+      - name: origin_prefecture
+        description: "産地県"
+        tests: [not_null]
+      - name: total_amount_yen
+        description: "月次総金額（円）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 0}]
+      - name: avg_unit_price_yen
+        description: "平均単価（円/kg）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 0}]
+      - name: yoy_amount_growth_rate
+        description: "前年同月比金額成長率（%）"
+      - name: yoy_price_growth_rate
+        description: "前年同月比価格成長率（%）"
+      - name: yoy_quantity_growth_rate
+        description: "前年同月比数量成長率（%）"
+      - name: mom_amount_growth_rate
+        description: "前月比金額成長率（%）"
+      - name: mom_price_growth_rate
+        description: "前月比価格成長率（%）"
+      - name: price_3month_moving_avg
+        description: "3ヶ月価格移動平均"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: price_6month_moving_avg
+        description: "6ヶ月価格移動平均"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: price_deviation_from_3m_avg
+        description: "3ヶ月移動平均からの乖離率（%）"
+      - name: price_trend_category
+        description: "価格トレンドカテゴリ"
+        tests: [accepted_values: {values: ['高値圏', '安値圏', '通常圏']}]
+      - name: avg_temperature
+        description: "平均気温（℃）"
+      - name: total_precipitation
+        description: "月間降水量（mm）"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: precipitation_category
+        description: "降水量カテゴリ"
+        tests: [accepted_values: {values: ['多雨', '普通', '少雨', '不明']}]
+      - name: temperature_category
+        description: "気温カテゴリ"
+        tests: [accepted_values: {values: ['暑い', '普通', '寒い', '不明']}]
+      - name: weather_data_quality
+        description: "気象データ品質"
+        tests: [accepted_values: {values: ['COMPLETE', 'PARTIAL', 'INSUFFICIENT']}]
+
+  - name: mart_seasonal_analysis
+    description: "季節性分析マート"
+    columns:
+      - name: item_name
+        description: "品目名"
+        tests: [not_null]
+      - name: month
+        description: "月"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 12}]
+      - name: season
+        description: "季節"
+        tests: [not_null, accepted_values: {values: ['春', '夏', '秋', '冬']}]
+      - name: vegetable_demand_period
+        description: "野菜需要期"
+        tests: [not_null, accepted_values: {values: ['夏野菜需要期', '冬野菜需要期', '春端境期', '秋端境期', '通常期']}]
+      - name: vegetable_category
+        description: "野菜分類"
+        tests: [not_null, accepted_values: {values: ['葉菜類', '果菜類', '根菜類', '芋類', '香味野菜', 'その他野菜']}]
+      - name: seasonality_pattern
+        description: "季節性パターン"
+        tests: [not_null, accepted_values: {values: ['春野菜', '夏野菜', '秋野菜', '冬野菜', '通年野菜']}]
+      - name: avg_monthly_price
+        description: "月平均価格（円/kg）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 0}]
+      - name: seasonal_price_index
+        description: "季節価格指数（%）"
+      - name: seasonal_quantity_index
+        description: "季節出荷量指数"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: price_rank_high_to_low
+        description: "品目内価格ランキング（高→低）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 12}]
+      - name: quantity_rank_high_to_low
+        description: "品目内出荷量ランキング（多→少）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 12}]
+      - name: seasonality_strength
+        description: "季節性の強さ（変動係数）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 0}]
+      - name: seasonality_level
+        description: "季節性レベル"
+        tests: [accepted_values: {values: ['高季節性', '中季節性', '低季節性', '季節性なし']}]
+      - name: price_volatility_level
+        description: "価格変動性レベル"
+        tests: [accepted_values: {values: ['高変動', '中変動', '低変動', '安定']}]
+      - name: peak_supply_months
+        description: "出荷ピーク月（上位3月）"
+      - name: peak_price_months
+        description: "価格高値月（上位3月）"
+      - name: low_price_months
+        description: "価格安値月（上位3月）"
+
+  - name: fact_price_movement
+    description: "価格変動トレンド分析ファクトテーブル"
+    columns:
+      - name: price_movement_key
+        description: "価格変動キー（サロゲートキー）"
+        tests: [unique, not_null]
+      - name: year
+        description: "取引年"
+        tests: [not_null]
+      - name: month
+        description: "取引月"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 12}]
+      - name: price_date
+        description: "価格データ日付"
+        tests: [not_null]
+      - name: item_name
+        description: "品目名"
+        tests: [not_null]
+      - name: market
+        description: "市場名"
+        tests: [not_null]
+      - name: origin
+        description: "産地"
+        tests: [not_null]
+      - name: avg_unit_price_yen
+        description: "平均単価（円/kg）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 0}]
+      - name: mom_price_change_pct
+        description: "前月比価格変動率（%）"
+      - name: q3m_price_change_pct
+        description: "3ヶ月前比価格変動率（%）"
+      - name: q6m_price_change_pct
+        description: "6ヶ月前比価格変動率（%）"
+      - name: yoy_price_change_pct
+        description: "前年同月比価格変動率（%）"
+      - name: price_3month_ma
+        description: "3ヶ月価格移動平均"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: price_6month_ma
+        description: "6ヶ月価格移動平均"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: price_12month_ma
+        description: "12ヶ月価格移動平均"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: deviation_from_3m_ma_pct
+        description: "3ヶ月移動平均乖離率（%）"
+      - name: deviation_from_6m_ma_pct
+        description: "6ヶ月移動平均乖離率（%）"
+      - name: deviation_from_12m_ma_pct
+        description: "12ヶ月移動平均乖離率（%）"
+      - name: price_zscore_12m
+        description: "価格Z-Score（12ヶ月）"
+      - name: price_volatility_12m
+        description: "価格変動性（12ヶ月変動係数）"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: price_trend_direction
+        description: "価格トレンド方向"
+        tests: [accepted_values: {values: ['上昇トレンド', '下降トレンド', '横這い', '不安定']}]
+      - name: price_range_category
+        description: "価格レンジカテゴリ"
+        tests: [accepted_values: {values: ['高値圏', 'やや高値', '適正圏', 'やや安値', '安値圏']}]
+      - name: volatility_level
+        description: "変動性レベル"
+        tests: [accepted_values: {values: ['高変動', '中変動', '低変動', '安定']}]
+      - name: price_anomaly_status
+        description: "価格異常値ステータス"
+        tests: [accepted_values: {values: ['異常値', '要注意', '監視対象', '正常範囲']}]
+      - name: short_term_movement
+        description: "短期価格変動"
+        tests: [accepted_values: {values: ['急激変動', '大幅変動', '通常変動', '微小変動']}]
+      - name: data_quality_level
+        description: "データ品質レベル"
+        tests: [accepted_values: {values: ['HIGH', 'MEDIUM', 'LOW', 'INSUFFICIENT']}]
+
+

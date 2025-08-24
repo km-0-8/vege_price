@@ -1,0 +1,39 @@
+name: vege_dbt
+version: 1.0
+config-version: 2
+
+profile: vege_project
+
+model-paths: ["models"]
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  vege_dbt:
+    staging:
+      +materialized: view
+      +schema: stg
+    marts:
+      +materialized: table
+      +schema: mart
+      dim_market:
+        +cluster_by: ["market"]
+      dim_weather_station:
+        +cluster_by: ["station_name"]
+      fact_weather_daily:
+        +cluster_by: ["observation_date", "station_key"]
+      dim_location:
+        +cluster_by: ["prefecture", "region"]
+      dim_time:
+        +cluster_by: ["year", "month"]
+      dim_item_enhanced:
+        +cluster_by: ["item_name", "vegetable_category"]
+      mart_price_weather:
+        +cluster_by: ["year", "month", "item_name", "origin_prefecture"]
+      mart_seasonal_analysis:
+        +cluster_by: ["item_name", "month", "vegetable_category"]
+      fact_price_movement:
+        +cluster_by: ["year", "month", "item_name", "market"]
+      fact_price_predictions:
+        +cluster_by: ["prediction_date", "item_name", "model_type"]
+      mart_price_predictions_dashboard:
+        +cluster_by: ["item_name", "prediction_month", "model_type"]

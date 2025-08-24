@@ -1,0 +1,488 @@
+name: Data Pipeline
+
+on:
+  # 月次スケジュール実行（毎月1日 JST 9:00）
+  schedule:
+    - cron: '0 0 1 * *'  # UTC 00:00 = JST 09:00
+
+  # 手動実行オプション
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+      run_ingestion:
+        description: 'Run data ingestion'
+        required: true
+        default: true
+        type: boolean
+      run_dbt:
+        description: 'Run dbt transformations'
+        required: true
+        default: true
+        type: boolean
+
+# 共通環境変数
+env:
+  ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
+  DATASET_PREFIX: vege
+  BQ_LOCATION: US
+
+jobs:
+  # CIイメージビルド
+  build-ci-image:
+    name: Build & Push CI Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # イメージ名とタグの生成
+      - name: Derive names
+        id: names
+        run: |
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          REPO="${GITHUB_REPOSITORY##*/}"
+          OWNER_L=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          REPO_L=$(echo "$REPO"  | tr '[:upper:]' '[:lower:]')
+
+          IMAGE_SHA="ghcr.io/${OWNER_L}/${REPO_L}-ci:${GITHUB_SHA}"
+          IMAGE_LATEST="ghcr.io/${OWNER_L}/${REPO_L}-ci:latest"
+
+          echo "owner=${OWNER_L}"   >> "$GITHUB_OUTPUT"
+          echo "repo=${REPO_L}"     >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "latest=${IMAGE_LATEST}" >> "$GITHUB_OUTPUT"
+
+      # Docker Buildxセットアップ
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # GitHub Container Registryログイン
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Dockerイメージのビルドとプッシュ
+      - name: Build & Push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.names.outputs.image }}
+            ${{ steps.names.outputs.latest }}
+
+      - id: meta
+        name: Export image URI
+        run: echo "image=${{ steps.names.outputs.image }}" >> "$GITHUB_OUTPUT"
+
+  # データ収集ジョブ（市場・気象データ）
+  data-ingestion:
+    name: Data Ingestion
+    runs-on: ubuntu-latest
+    needs: [build-ci-image]
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs['build-ci-image'].outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    if: |
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_ingestion == 'true') ||
+      github.event_name == 'schedule'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # GCP認証
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      # Google Cloud SDK設定
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # GCPアクセステスト
+      - name: Verify GCP authentication
+        run: |
+          gcloud auth list
+          gcloud config list project
+          bq ls --max_results=1
+          echo "完了：BigQuery アクセステスト"
+          gsutil ls
+          echo "完了：Cloud Storage アクセステスト"
+
+      # データ取得前の無料枠使用量確認
+      - name: Check free tier usage before ingestion
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          DATASET_PREFIX: ${{ env.DATASET_PREFIX }}
+          ENVIRONMENT: ${{ env.ENVIRONMENT }}
+        run: |
+          python scripts/cost_monitor.py --check-all --output json > usage_report.json
+          echo "データ取得前の使用量レポートを生成しました: usage_report.json"
+          
+          # Check if any resource usage is above 80%
+          if python -c "
+          import json
+          with open('usage_report.json') as f:
+              data = json.load(f)
+          alerts = data.get('alerts', [])
+          critical_alerts = [a for a in alerts if a['level'] in ['CRITICAL', 'EMERGENCY']]
+          if critical_alerts:
+              print('エラー: 重要な使用量アラートを検出:', critical_alerts)
+              exit(1)
+          else:
+              print('確認: 使用量は安全な範囲内です')
+          "; then
+            echo "確認: データ取得を安全に実行できます"
+          else
+            echo "エラー: リソース使用量が高いため中止します"
+            exit 1
+          fi
+
+      # 市場データ収集実行
+      - name: Run market data ingestion
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+          GCS_PREFIX: ${{ secrets.GCS_PREFIX }}
+          BQ_DATASET: ${{ env.DATASET_PREFIX }}_${{ env.ENVIRONMENT }}_raw
+          BQ_TABLE: tokyo_market
+        run: |
+          python scripts/get_vege_data.py
+
+      # 気象データ収集実行
+      - name: Run weather data ingestion
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+          WEATHER_GCS_PREFIX: ${{ secrets.WEATHER_GCS_PREFIX }}
+          BQ_DATASET: ${{ env.DATASET_PREFIX }}_${{ env.ENVIRONMENT }}_raw
+          WEATHER_COVERAGE: agriculture
+        run: |
+          python scripts/get_weather_data.py --coverage agriculture
+
+  # dbtデータ変換ジョブ（ステージング・マート）
+  dbt-transformation:
+    name: dbt Transformation
+    runs-on: ubuntu-latest
+    needs: [build-ci-image, data-ingestion]
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs['build-ci-image'].outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    if: |
+      always() && 
+      (needs.data-ingestion.result == 'success' || needs.data-ingestion.result == 'skipped') &&
+      ((github.event_name == 'workflow_dispatch' && github.event.inputs.run_dbt == 'true') ||
+       github.event_name == 'schedule' ||
+       github.event_name == 'pull_request')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # GCP認証
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      # Google Cloud SDK設定
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # dbtプロファイル作成
+      - name: Create dbt profiles
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml << EOF
+          vege_project:
+            target: ${{ env.ENVIRONMENT }}
+            outputs:
+              ${{ env.ENVIRONMENT }}:
+                type: bigquery
+                method: oauth
+                project: ${{ secrets.GCP_PROJECT_ID }}
+                dataset: ${{ env.DATASET_PREFIX }}_${{ env.ENVIRONMENT }}
+                threads: 4
+                timeout_seconds: 300
+                location: ${{ env.BQ_LOCATION }}
+          EOF
+
+      # dbtパッケージインストール
+      - name: Install dbt packages
+        working-directory: ./dbt
+        run: dbt deps
+
+      # dbt実行（ML予測関連除く）
+      - name: Run dbt models (excluding ML prediction models)
+        if: github.event_name != 'pull_request'
+        working-directory: ./dbt
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          DATASET_PREFIX: ${{ env.DATASET_PREFIX }}
+          ENVIRONMENT: ${{ env.ENVIRONMENT }}
+          BQ_LOCATION: ${{ env.BQ_LOCATION }}
+        run: |
+          # ML予測関連モデルを除外して実行
+          dbt run --profiles-dir ~/.dbt --exclude stg_price_predictions fact_price_predictions mart_price_predictions_dashboard
+
+      # dbtテスト（ML予測関連除く）
+      - name: Test dbt models (excluding ML prediction models)
+        working-directory: ./dbt
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          DATASET_PREFIX: ${{ env.DATASET_PREFIX }}
+          ENVIRONMENT: ${{ env.ENVIRONMENT }}
+          BQ_LOCATION: ${{ env.BQ_LOCATION }}
+        run: |
+          # ML予測関連モデルを除外してテスト
+          dbt test --profiles-dir ~/.dbt --exclude stg_price_predictions fact_price_predictions mart_price_predictions_dashboard
+
+      # dbtドキュメント生成
+      - name: Generate dbt documentation
+        if: github.event_name != 'pull_request'
+        working-directory: ./dbt
+        run: |
+          dbt docs generate --profiles-dir ~/.dbt
+
+  # ML価格予測ジョブ
+  ml-prediction:
+    name: ML Price Prediction
+    runs-on: ubuntu-latest
+    needs: [build-ci-image, dbt-transformation]
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs['build-ci-image'].outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    if: |
+      always() && 
+      needs.dbt-transformation.result == 'success' &&
+      ((github.event_name == 'workflow_dispatch') ||
+       github.event_name == 'schedule')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # GCP認証
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      # Google Cloud SDK設定
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # MLジョブ用dbtプロファイル作成
+      - name: Create dbt profiles for ML job
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml << EOF
+          vege_project:
+            target: dev
+            outputs:
+              dev:
+                type: bigquery
+                method: oauth
+                project: ${{ secrets.GCP_PROJECT_ID }}
+                dataset: vege_dev
+                threads: 4
+                timeout_seconds: 300
+                location: US
+          EOF
+
+      # ML価格予測バッチ実行
+      - name: Run ML price prediction batch
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+          DATASET_PREFIX: vege
+          ENVIRONMENT: dev
+          BQ_LOCATION: US
+          PREDICTION_MONTHS_AHEAD: 6  # 最新データ月から6ヶ月先まで予測
+        run: |
+          echo "ML価格予測バッチを実行中..."
+          python scripts/ml_batch.py
+
+      # dbt実行（予測結果用）
+      - name: Run dbt models for predictions
+        working-directory: ./dbt
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          DATASET_PREFIX: vege
+          ENVIRONMENT: dev
+          BQ_LOCATION: US
+        run: |
+          echo "dbtで予測結果を処理中..."
+          # dbt依存関係解決
+          dbt deps --profiles-dir ~/.dbt
+          # 予測結果関連モデルのみ実行
+          dbt run --profiles-dir ~/.dbt --select stg_price_predictions fact_price_predictions mart_price_predictions_dashboard
+
+      # dbtテスト（予測結果用）
+      - name: Test prediction data quality
+        working-directory: ./dbt
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          DATASET_PREFIX: vege
+          ENVIRONMENT: dev
+          BQ_LOCATION: US
+        run: |
+          echo "予測データ品質をテスト中..."
+          # dbt依存関係は前ステップで解決済み
+          dbt test --profiles-dir ~/.dbt --select stg_price_predictions fact_price_predictions mart_price_predictions_dashboard
+
+  # Slack価格通知ジョブ
+  slack-notification:
+    name: Slack Price Notification
+    runs-on: ubuntu-latest
+    needs: [build-ci-image, data-ingestion, dbt-transformation, ml-prediction]
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs['build-ci-image'].outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    if: |
+      always() && 
+      (needs.ml-prediction.result == 'success' || needs.ml-prediction.result == 'failure') &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      # GCP認証
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      
+      # Google Cloud SDKセットアップ
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      # Slack設定確認
+      - name: Verify Slack configuration
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "警告: SLACK_WEBHOOK_URL環境変数が設定されていません"
+            echo "Slack通知をスキップします"
+            echo "SKIP_SLACK=true" >> $GITHUB_ENV
+          else
+            echo "確認: Slack通知設定が完了しました"
+            echo "SKIP_SLACK=false" >> $GITHUB_ENV
+          fi
+      
+      # Slack価格通知実行
+      - name: Run Slack price notification
+        if: env.SKIP_SLACK == 'false'
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          PRICE_DECREASE_THRESHOLD: ${{ vars.PRICE_DECREASE_THRESHOLD || '0.1' }}
+          MIN_CONFIDENCE: ${{ vars.MIN_CONFIDENCE || '0.7' }}
+          ML_PREDICTION_STATUS: ${{ needs.ml-prediction.result }}
+        run: |
+          echo "野菜価格低下予測Slack通知を実行中..."
+          echo "ML予測ステータス: $ML_PREDICTION_STATUS"
+          python scripts/slack_notif.py
+      
+
+  # パイプライン結果通知ジョブ
+  notify:
+    name: Notify Pipeline Results
+    runs-on: ubuntu-latest
+    needs: [data-ingestion, dbt-transformation, ml-prediction, slack-notification]
+    if: always() && github.event_name == 'schedule'
+    
+    steps:
+      # 全成功時の通知
+      - name: Notify full success
+        if: |
+          needs.data-ingestion.result == 'success' && 
+          needs.dbt-transformation.result == 'success' && 
+          needs.ml-prediction.result == 'success' &&
+          needs.slack-notification.result == 'success'
+        run: |
+          echo "全データパイプライン処理が成功しました"
+          echo "データ収集: 成功"
+          echo "dbt変換: 成功" 
+          echo "ML予測: 成功"
+          echo "Slack通知: 成功"
+
+      # Slack通知以外成功時の通知
+      - name: Notify success without slack
+        if: |
+          needs.data-ingestion.result == 'success' && 
+          needs.dbt-transformation.result == 'success' && 
+          needs.ml-prediction.result == 'success' &&
+          needs.slack-notification.result != 'success'
+        run: |
+          echo "データパイプライン処理が完了しました（Slack通知除く）"
+          echo "データ収集: 成功"
+          echo "dbt変換: 成功" 
+          echo "ML予測: 成功"
+          echo "Slack通知: ${{ needs.slack-notification.result }}"
+
+      # 部分成功時の通知
+      - name: Notify partial success
+        if: |
+          (needs.data-ingestion.result == 'success' && needs.dbt-transformation.result == 'success') &&
+          needs.ml-prediction.result != 'success'
+        run: |
+          echo "データパイプラインが部分的に完了しました"
+          echo "データ収集: 成功"
+          echo "dbt変換: 成功"
+          echo "ML予測: ${{ needs.ml-prediction.result }}"
+          echo "Slack通知: スキップ（ML予測失敗のため）"
+
+      # 失敗時の通知
+      - name: Notify failure
+        if: needs.data-ingestion.result == 'failure' || needs.dbt-transformation.result == 'failure'
+        run: |
+          echo "データパイプラインが失敗しました"
+          echo "データ収集: ${{ needs.data-ingestion.result }}"
+          echo "dbt変換: ${{ needs.dbt-transformation.result }}"
+          echo "ML予測: ${{ needs.ml-prediction.result }}"
+          echo "Slack通知: ${{ needs.slack-notification.result }}"
+          exit 1

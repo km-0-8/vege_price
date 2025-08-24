@@ -1,0 +1,212 @@
+version: 2
+
+sources:
+  - name: vege_dev_raw
+    description: "野菜市場分析システムのRAW層データソース"
+    schema: "{{ env_var('DATASET_PREFIX', 'vege') }}_{{ env_var('ENVIRONMENT', 'dev') }}_raw"
+    tables:
+      - name: tokyo_market
+        description: "東京都中央卸売市場の野菜取引データ（RAW）"
+        columns:
+          - name: year
+            description: "取引年"
+          - name: month
+            description: "取引月"
+          - name: market
+            description: "市場名"
+          - name: item_name
+            description: "品目名"
+          - name: origin
+            description: "産地"
+          - name: quantity_kg
+            description: "数量（kg）"
+          - name: amount_yen
+            description: "金額（円）"
+      
+      - name: weather_hourly
+        description: "気象庁時別気象観測データ（RAW）"
+        columns:
+          - name: station_id
+            description: "観測点ID"
+          - name: station_name
+            description: "観測点名"
+          - name: observation_datetime
+            description: "観測日時"
+          - name: temperature
+            description: "気温（℃）"
+          - name: humidity
+            description: "湿度（%）"
+          - name: precipitation
+            description: "降水量（mm）"
+      
+      - name: ml_price_pred
+        description: "機械学習価格予測結果（RAW）"
+        columns:
+          - name: prediction_id
+            description: "予測レコードID"
+          - name: prediction_date
+            description: "予測対象日"
+          - name: prediction_year
+            description: "予測対象年"
+          - name: prediction_month
+            description: "予測対象月"
+          - name: item_name
+            description: "品目名"
+          - name: model_type
+            description: "予測モデル種別"
+          - name: predicted_price
+            description: "予測価格（円/kg）"
+          - name: confidence_interval
+            description: "信頼区間"
+          - name: training_data_points
+            description: "学習データ数"
+
+models:
+  - name: stg_market
+    description: "東京都中央卸売市場の野菜データ（STG層：型変換・正規化済み）"
+    columns:
+      - name: year
+        description: "取引年"
+        tests: [not_null]
+      - name: month
+        description: "取引月"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 12}]
+      - name: market
+        description: "市場名"
+        tests: [not_null]
+      - name: major_category
+        description: "大分類（野菜のみ）"
+        tests: [not_null, accepted_values: {values: ['野菜']}]
+      - name: sub_category
+        description: "中分類"
+      - name: item_name
+        description: "品目名"
+        tests: [not_null]
+      - name: origin
+        description: "産地"
+      - name: quantity_kg
+        description: "数量（kg）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 0}]
+      - name: amount_yen
+        description: "金額（円）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 0}]
+
+  - name: stg_weather
+    description: "アメダス気象観測データ（STG層：型変換・正規化済み）"
+    columns:
+      - name: station_id
+        description: "観測点ID"
+        tests: [not_null]
+      - name: station_name
+        description: "観測点名"
+        tests: [not_null]
+      - name: observation_datetime
+        description: "観測日時"
+        tests: [not_null]
+      - name: temperature
+        description: "気温（℃）"
+      - name: humidity
+        description: "湿度（%）"
+        tests: [dbt_utils.accepted_range: {min_value: 0, max_value: 100}]
+      - name: precipitation
+        description: "降水量（mm）"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: wind_speed
+        description: "風速（m/s）"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: wind_direction
+        description: "風向（度）"
+        tests: [dbt_utils.accepted_range: {min_value: 0, max_value: 360}]
+      - name: sunshine
+        description: "日照時間（時間）"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: observation_date
+        description: "観測日"
+        tests: [not_null]
+      - name: observation_year
+        description: "観測年"
+        tests: [not_null]
+      - name: observation_month
+        description: "観測月"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 12}]
+      - name: observation_day
+        description: "観測日"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 31}]
+      - name: observation_hour
+        description: "観測時"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 0, max_value: 23}]
+
+  - name: stg_price_pred
+    description: "価格予測結果データ（STG層：正規化・品質チェック済み）"
+    columns:
+      - name: prediction_id
+        description: "予測レコードID"
+        tests: [not_null]
+      - name: prediction_date
+        description: "予測対象日"
+        tests: [not_null]
+      - name: prediction_year
+        description: "予測対象年"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 2020, max_value: 2030}]
+      - name: prediction_month
+        description: "予測対象月"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 12}]
+      - name: prediction_generated_at
+        description: "予測生成日時"
+        tests: [not_null]
+      - name: item_name
+        description: "品目名"
+        tests: [not_null]
+      - name: model_type
+        description: "予測モデル種別"
+        tests: [not_null, accepted_values: {values: ['PROPHET', 'LSTM', 'ARIMA', 'RANDOM_FOREST', 'GRADIENT_BOOSTING', 'LINEAR_REGRESSION']}]
+      - name: model_version
+        description: "モデルバージョン"
+        tests: [not_null]
+      - name: predicted_price
+        description: "予測価格（円/kg）"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 100000}]
+      - name: lower_bound_price
+        description: "予測価格下限"
+        tests: [dbt_utils.accepted_range: {min_value: -50000, max_value: 100000}]
+      - name: upper_bound_price
+        description: "予測価格上限"
+        tests: [dbt_utils.accepted_range: {min_value: -10000, max_value: 100000}]
+      - name: confidence_interval
+        description: "信頼区間"
+        tests: [dbt_utils.accepted_range: {min_value: 0, max_value: 1}]
+      - name: training_data_points
+        description: "学習データ数"
+        tests: [not_null, dbt_utils.accepted_range: {min_value: 1, max_value: 300000}]
+      - name: training_period_start
+        description: "学習期間開始日"
+      - name: training_period_end
+        description: "学習期間終了日"
+      - name: last_actual_price
+        description: "最新実績価格"
+        tests: [dbt_utils.accepted_range: {min_value: -50000, max_value: 100000}]
+      - name: last_actual_date
+        description: "最新実績日"
+      - name: model_mae
+        description: "モデル平均絶対誤差"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: model_mse
+        description: "モデル平均二乗誤差"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: model_rmse
+        description: "モデル平均平方根誤差"
+        tests: [dbt_utils.accepted_range: {min_value: 0}]
+      - name: model_r2
+        description: "モデル決定係数"
+        tests: [dbt_utils.accepted_range: {min_value: -1, max_value: 1}]
+      - name: data_quality_score
+        description: "データ品質スコア"
+        tests: [dbt_utils.accepted_range: {min_value: 0, max_value: 1}]
+      - name: prediction_reliability
+        description: "予測信頼性レベル"
+        tests: [accepted_values: {values: ['HIGH', 'MEDIUM', 'LOW', 'VERY_LOW']}]
+      - name: created_at
+        description: "レコード作成日時"
+        tests: [not_null]
+      - name: updated_at
+        description: "レコード更新日時"
