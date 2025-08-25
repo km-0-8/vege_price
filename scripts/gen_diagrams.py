@@ -1,14 +1,3 @@
-#!/usr/bin/env python3
-"""
-野菜市場分析プラットフォーム - 包括的図表生成システム
-
-改善点:
-- 型ヒントとデータクラスでの設定管理
-- 包括的エラーハンドリングとログ改善
-- セキュリティ強化とパフォーマンス最適化
-- 条件付きインポートでの依存関係管理
-"""
-
 import os
 import logging
 import time
@@ -20,7 +9,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 import psutil
 
-# 条件付きインポート - Diagramsライブラリ
 try:
     from diagrams import Diagram, Cluster, Node, Edge
     
@@ -69,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DiagramConfig:
-    """図表生成設定"""
+    # 図表生成設定
     output_dir: str = "../docs/images"
     image_format: str = "png"
     enable_show: bool = False
@@ -86,7 +74,7 @@ class DiagramConfig:
     
     @classmethod
     def from_env(cls) -> 'DiagramConfig':
-        """環境変数から設定を作成"""
+        # 環境変数から設定を作成
         load_dotenv()
         
         return cls(
@@ -101,7 +89,7 @@ class DiagramConfig:
 
 @dataclass
 class DiagramResult:
-    """図表生成結果データ"""
+    # 図表生成結果データ
     success: bool
     diagram_name: str
     file_path: Optional[str] = None
@@ -110,7 +98,7 @@ class DiagramResult:
 
 
 class EnhancedDiagramGenerator:
-    """改善された図表生成システムクラス"""
+    # 改善された図表生成システムクラス
     
     def __init__(self, config: DiagramConfig):
         self.config = config
@@ -134,7 +122,7 @@ class EnhancedDiagramGenerator:
         self.generation_start_time = None
         
     def get_default_graph_attr(self, **overrides) -> Dict[str, str]:
-        """デフォルトのグラフ属性を取得"""
+        # デフォルトのグラフ属性を取得
         default_attr = {
             "fontsize": self.config.font_size,
             "nodesep": self.config.node_sep,
@@ -148,7 +136,7 @@ class EnhancedDiagramGenerator:
         return default_attr
     
     def _generate_diagram_with_monitoring(self, diagram_func, diagram_name: str, **kwargs) -> DiagramResult:
-        """パフォーマンス監視付きで図表を生成"""
+        # パフォーマンス監視付きで図表を生成
         start_time = time.time()
         initial_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
         
@@ -186,7 +174,7 @@ class EnhancedDiagramGenerator:
             )
     
     def generate_overall_architecture(self) -> str:
-        """全体アーキテクチャ図を生成"""
+        # 全体アーキテクチャ図を生成
         filename = f"{self.config.output_dir}/overall_architecture_v2"
         
         with Diagram("Vegetable Market Analysis Platform - Overall Architecture", 
@@ -273,7 +261,7 @@ class EnhancedDiagramGenerator:
         return f"{filename}.{self.config.image_format}"
     
     def generate_data_pipeline_architecture(self) -> str:
-        """データパイプライン詳細図を生成"""
+        # データパイプライン詳細図を生成
         filename = f"{self.config.output_dir}/data_pipeline_architecture_v2"
         
         with Diagram("Data Pipeline Detailed Architecture", 
@@ -350,7 +338,7 @@ class EnhancedDiagramGenerator:
         return f"{filename}.{self.config.image_format}"
     
     def generate_ml_architecture(self) -> str:
-        """機械学習・予測システム詳細図を生成"""
+        # 機械学習・予測システム詳細図を生成
         filename = f"{self.config.output_dir}/ml_architecture_v2"
         
         with Diagram("ML Prediction System Architecture", 
@@ -429,7 +417,7 @@ class EnhancedDiagramGenerator:
         return f"{filename}.{self.config.image_format}"
     
     def generate_all_diagrams(self) -> List[DiagramResult]:
-        """全ての図表を生成"""
+        # 全ての図表を生成
         self.logger.info("=== 包括的図表生成を開始 ===")
         self.generation_start_time = datetime.now()
         
@@ -477,7 +465,7 @@ class EnhancedDiagramGenerator:
 
 
 def main():
-    """メイン実行関数"""
+    # メイン実行関数
     parser = argparse.ArgumentParser(description="野菜市場分析プラットフォーム図表生成システム")
     
     parser.add_argument("--output-dir", help="出力ディレクトリ")

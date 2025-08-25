@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-コスト監視・制御モジュール
-GCP無料枠の使用量を監視し、上限に達する前にアラートを発生させる
-"""
 import os
 import json
 import logging
@@ -20,7 +15,7 @@ import concurrent.futures
 from contextlib import contextmanager
 import threading
 
-# Optional imports with fallback
+# フォールバック機能付きのオプションインポート
 try:
     from google.cloud import monitoring_v3
     MONITORING_AVAILABLE = True
@@ -35,29 +30,29 @@ except ImportError:
     logging.warning("google-cloud-billing not available - billing features disabled")
     BILLING_AVAILABLE = False
 
-# Thread-safe cache for expensive operations
+# 高コスト操作用のスレッドセーフキャッシュ
 _cache_lock = threading.Lock()
 _usage_cache: Dict[str, Tuple[Any, datetime]] = {}
-CACHE_TTL_SECONDS = 300  # 5 minutes cache
+CACHE_TTL_SECONDS = 300  # 5分間のキャッシュ
 
-# GCP Free Tier limits
+# GCP無料枠の制限値
 FREE_TIER_LIMITS = {
-    "bigquery_processing_gb": 1024,  # 1TB per month
+    "bigquery_processing_gb": 1024,  # 月間1TB
     "storage_gb": 5,  # 5GB
     "bigquery_storage_gb": 10  # 10GB
 }
 
-# Alert thresholds (percentage)
+# アラート閾値（パーセント）
 ALERT_THRESHOLDS = {
     "warning": 60,
     "critical": 80,
     "emergency": 95
 }
 
-# Configuration management
+# 設定管理
 @dataclass
 class CostMonitorConfig:
-    """Cost monitor configuration"""
+    # コストモニター設定
     project_id: str
     dataset_prefix: str = "vege"
     environment: str = "dev"
@@ -74,7 +69,7 @@ class CostMonitorConfig:
     
     @classmethod
     def from_env(cls) -> 'CostMonitorConfig':
-        """Create configuration from environment variables"""
+        # 環境変数から設定を作成
         load_dotenv()
         
         project_id = os.environ.get("GCP_PROJECT_ID")
@@ -99,7 +94,7 @@ class CostMonitorConfig:
 
 @dataclass
 class UsageData:
-    """使用量データクラス with enhanced validation and methods"""
+    # 拡張された検証とメソッドを持つ使用量データクラス
     service: str
     resource_type: str
     current_usage: float
@@ -112,7 +107,7 @@ class UsageData:
     confidence_level: Optional[float] = None
     
     def __post_init__(self) -> None:
-        """Validate data after initialization"""
+        # 初期化後にデータを検証
         if self.current_usage < 0:
             raise ValueError(f"Current usage cannot be negative: {self.current_usage}")
         if self.limit <= 0:
@@ -121,21 +116,21 @@ class UsageData:
             self.usage_percentage = min(100, max(0, (self.current_usage / self.limit) * 100))
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary with proper serialization"""
+        # 適切なシリアル化でディクショナリに変換
         data = asdict(self)
         data['check_time'] = self.check_time.isoformat()
         return data
     
     def is_critical(self) -> bool:
-        """Check if usage is in critical range"""
+        # 使用量が危険範囲にあるかチェック
         return self.alert_level in ["CRITICAL", "EMERGENCY"]
     
     def get_remaining_capacity(self) -> float:
-        """Get remaining capacity in the same unit"""
+        # 同じ単位で残り容量を取得
         return max(0, self.limit - self.current_usage)
     
     def format_usage_summary(self) -> str:
-        """Format usage summary for logging"""
+        # ログ用に使用量サマリーをフォーマット
         return (f"{self.service} {self.resource_type}: "
                 f"{self.current_usage:.2f}{self.unit} / {self.limit}{self.unit} "
                 f"({self.usage_percentage:.1f}%) - {self.alert_level}")
@@ -167,7 +162,7 @@ class CostMonitor:
         self.logger = logging.getLogger(__name__)
     
     def check_bigquery_usage(self) -> UsageData:
-        """BigQuery使用量をチェック"""
+        # BigQuery使用量をチェック
         try:
             # 当月の処理量を取得（バイト単位）
             query = """
@@ -187,14 +182,13 @@ class CostMonitor:
             )
             
             query_job = self.bigquery_client.query(query, job_config=job_config)
-            results = query_job.result()  # QueryJobを実行して結果を取得
-            
-            # 結果から最初の行を取得
+            results = query_job.result()
+
             processed_bytes = 0
             for row in results:
                 processed_bytes = row.total_processed_bytes or 0
-                break  # 最初の行だけ取得
-            processed_gb = processed_bytes / (1024**3)  # バイトからGBに変換
+                break
+            processed_gb = processed_bytes / (1024**3)
             
             limit_gb = FREE_TIER_LIMITS["bigquery_processing_gb"]
             usage_percentage = (processed_gb / limit_gb) * 100
@@ -233,7 +227,7 @@ class CostMonitor:
             )
     
     def check_storage_usage(self) -> List[UsageData]:
-        """Cloud Storage使用量をチェック"""
+        # Cloud Storage使用量をチェック
         usage_data_list = []
         
         try:
@@ -289,7 +283,7 @@ class CostMonitor:
         return usage_data_list
     
     def _get_bucket_size(self, bucket_name: str) -> int:
-        """バケットのサイズを取得（バイト単位）"""
+        # バケットのサイズを取得（バイト単位）
         bucket = self.storage_client.bucket(bucket_name)
         total_size = 0
         
@@ -299,7 +293,7 @@ class CostMonitor:
         return total_size
     
     def _get_alert_level(self, usage_percentage: float) -> str:
-        """使用率に基づいてアラートレベルを決定"""
+        # 使用率に基づいてアラートレベルを決定
         if usage_percentage >= ALERT_THRESHOLDS["emergency"]:
             return "EMERGENCY"
         elif usage_percentage >= ALERT_THRESHOLDS["critical"]:
@@ -310,7 +304,7 @@ class CostMonitor:
             return "NORMAL"
     
     def check_all_usage(self) -> List[UsageData]:
-        """全リソースの使用量をチェック"""
+        # 全リソースの使用量をチェック
         all_usage_data = []
         
         # BigQuery使用量チェック（エラーでも続行）
@@ -319,7 +313,6 @@ class CostMonitor:
             all_usage_data.append(bq_usage)
         except Exception as e:
             self.logger.error(f"BigQuery usage check failed: {str(e)}")
-            # 上記メソッドでフォールバック値が返されるはず
         
         # Storage使用量チェック（エラーでも続行）
         try:
@@ -327,19 +320,18 @@ class CostMonitor:
             all_usage_data.extend(storage_usage)
         except Exception as e:
             self.logger.error(f"Storage usage check failed: {str(e)}")
-            # 上記メソッドでフォールバック値が返されるはず
         
         return all_usage_data
     
     def save_usage_to_bigquery(self, usage_data_list: List[UsageData]) -> bool:
-        """使用量データをBigQueryに保存"""
+        # 使用量データをBigQueryに保存
         try:
-            # 使用量監視専用のデータセット（環境接頭辞なし）
+            # 使用量監視専用のデータセット
             dataset_id = "vege_usage_monitoring"
             table_id = "daily_usage_log"
             table_ref = f"{self.project_id}.{dataset_id}.{table_id}"
             
-            # データを変換（テーブルスキーマに合わせる）
+            # データを変換
             rows_to_insert = []
             for usage_data in usage_data_list:
                 row = {
@@ -350,7 +342,7 @@ class CostMonitor:
                     'usage_unit': usage_data.unit,
                     'free_tier_limit': usage_data.limit,
                     'usage_percentage': usage_data.usage_percentage,
-                    'cost_usd': 0.0,  # 無料枠内なのでコストは0
+                    'cost_usd': 0.0,
                     'check_time': datetime.utcnow().isoformat()
                 }
                 rows_to_insert.append(row)
@@ -377,7 +369,7 @@ class CostMonitor:
             return False
     
     def check_and_alert(self) -> Dict:
-        """使用量チェックとアラート"""
+        # 使用量チェックとアラート
         try:
             # 全使用量をチェック
             usage_data_list = self.check_all_usage()
@@ -420,15 +412,13 @@ class CostMonitor:
             raise
     
     def is_safe_to_proceed(self, required_processing_gb: float = 0) -> Tuple[bool, str]:
-        """
-        処理実行前の安全チェック
-        
-        Args:
-            required_processing_gb: 必要な処理量（GB）
-            
-        Returns:
-            (安全かどうか, 理由)
-        """
+        # 処理実行前の安全チェック
+        #
+        # Args:
+        #     required_processing_gb: 必要な処理量（GB）
+        #
+        # Returns:
+        #     (安全かどうか, 理由)
         try:
             # 現在の使用量をチェック
             bq_usage = self.check_bigquery_usage()
@@ -450,7 +440,7 @@ class CostMonitor:
             return False, f"Safety check failed: {str(e)}"
 
 def main():
-    """メイン実行関数"""
+    # メイン実行関数
     import argparse
     
     parser = argparse.ArgumentParser(description="GCP無料枠使用量監視")
