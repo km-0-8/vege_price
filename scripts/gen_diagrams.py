@@ -29,7 +29,6 @@ try:
     
     # プログラミング言語・フレームワーク
     from diagrams.programming.language import Python
-    from diagrams.programming.framework import FastAPI
     
     # 汎用アイコン
     from diagrams.generic.storage import Storage
@@ -177,7 +176,7 @@ class EnhancedDiagramGenerator:
         # 全体アーキテクチャ図を生成
         filename = f"{self.config.output_dir}/overall_architecture_v2"
         
-        with Diagram("Vegetable Market Analysis Platform - Overall Architecture", 
+        with Diagram("野菜市場分析プラットフォーム - 全体アーキテクチャ", 
                      filename=filename, 
                      show=self.config.enable_show, 
                      direction=self.config.default_direction, 
@@ -206,30 +205,33 @@ class EnhancedDiagramGenerator:
                 # BigQuery データウェアハウス
                 with Cluster("BigQuery Data Warehouse"):
                     with Cluster("RAW Layer"):
-                        bq_raw_market = Bigquery("${BQ_TABLE}")
+                        bq_raw_market = Bigquery("tokyo_market")
                         bq_raw_weather = Bigquery("weather_hourly")
+                        bq_raw_predictions = Bigquery("ml_price_pred")
                     
                     with Cluster("STG Layer (dbt)"):
                         bq_stg_market = Bigquery("stg_market_raw")
                         bq_stg_weather = Bigquery("stg_weather_observation")
+                        bq_stg_predictions = Bigquery("stg_price_pred")
                         
                     with Cluster("MART Layer (dbt)"):
                         bq_dims = Bigquery("Dimensions\n(5 tables)")
-                        bq_facts = Bigquery("Facts\n(2 tables)")
-                        bq_marts = Bigquery("Analysis Marts\n(4 tables)")
+                        bq_facts = Bigquery("Facts\n(3 tables)")
+                        bq_marts = Bigquery("Analysis Marts\n(3 tables)")
                 
                 # dbt変換エンジン
                 dbt_runner = Dataflow("dbt Transformations")
             
             # 分析・機械学習層
             with Cluster("Analytics & ML", graph_attr={"style": "rounded", "bgcolor": "lightcoral"}):
-                ml_models = AIPlatform("ML Models\n(Prophet/LSTM/ARIMA)")
-                api_service = AppEngine("Prediction API\n(FastAPI)")
-                model_cache = Redis("Model Cache")
+                ml_models = AIPlatform("ML Models\n(Prophet/LSTM/ARIMA\n/Random Forest/Gradient Boosting)")
+                batch_ml = ComputeEngine("ML Batch Processing\n(ml_batch.py)")
+                model_cache = GCS("Model Storage\n(Trained Models)")
                 
             # 可視化・レポート層
             with Cluster("Visualization & Reporting", graph_attr={"style": "rounded", "bgcolor": "lightpink"}):
-                looker_dashboard = Server("Looker Studio\nDashboards")
+                slack_notifications = Server("Slack通知\n(安価野菜予測)")
+                cost_monitoring = Server("コスト監視\n(cost_monitor.py)")
                 users = Users("Business Users")
                 
             # データフロー（エッジラベル付き）
@@ -247,16 +249,19 @@ class EnhancedDiagramGenerator:
             
             dbt_runner >> Edge(label="Transform", style="solid", color="red") >> bq_stg_market
             dbt_runner >> Edge(label="Transform", style="solid", color="red") >> bq_stg_weather
+            dbt_runner >> Edge(label="Transform", style="solid", color="red") >> bq_stg_predictions
             bq_stg_market >> Edge(label="Aggregate", style="dotted", color="darkgreen") >> bq_dims
             bq_stg_market >> Edge(label="Aggregate", style="dotted", color="darkgreen") >> bq_facts
             bq_stg_weather >> Edge(label="Aggregate", style="dotted", color="darkgreen") >> bq_marts
             
-            bq_marts >> Edge(label="Training Data", style="bold", color="darkred") >> ml_models
-            ml_models >> Edge(label="Model Deploy", style="dashed", color="darkblue") >> api_service
-            api_service >> Edge(label="Cache", style="dotted", color="gray") >> model_cache
+            bq_marts >> Edge(label="Training Data", style="bold", color="darkred") >> batch_ml
+            batch_ml >> Edge(label="ML Processing", style="bold", color="darkred") >> ml_models
+            ml_models >> Edge(label="Predictions", style="dashed", color="darkblue") >> bq_raw_predictions
+            ml_models >> Edge(label="Store Models", style="dotted", color="gray") >> model_cache
             
-            bq_marts >> Edge(label="Analytics", style="solid", color="darkviolet") >> looker_dashboard
-            looker_dashboard >> Edge(label="Reports", style="bold", color="black") >> users
+            bq_marts >> Edge(label="Prediction Data", style="solid", color="darkviolet") >> slack_notifications
+            cost_monitoring >> Edge(label="Monitor", style="dashed", color="red") >> bq_raw_market
+            slack_notifications >> Edge(label="Alerts", style="bold", color="black") >> users
         
         return f"{filename}.{self.config.image_format}"
     
@@ -264,7 +269,7 @@ class EnhancedDiagramGenerator:
         # データパイプライン詳細図を生成
         filename = f"{self.config.output_dir}/data_pipeline_architecture_v2"
         
-        with Diagram("Data Pipeline Detailed Architecture", 
+        with Diagram("データパイプライン詳細アーキテクチャ", 
                      filename=filename, 
                      show=self.config.enable_show, 
                      direction=self.config.default_direction, 
@@ -296,8 +301,9 @@ class EnhancedDiagramGenerator:
                 
             # 第5層: BigQuery RAW層
             with Cluster("BigQuery RAW Layer", graph_attr={"style": "rounded", "bgcolor": "wheat", "margin": "20"}):
-                raw_market_table = Bigquery("${BQ_TABLE}\n(Raw Data)")
+                raw_market_table = Bigquery("tokyo_market\n(Raw Data)")
                 raw_weather_table = Bigquery("weather_hourly\n(Raw Data)")
+                raw_predictions_table = Bigquery("ml_price_pred\n(Predictions)")
             
             # 第6層: dbt変換エンジン
             dbt_engine = Dataflow("dbt Transformation\nEngine")
@@ -307,11 +313,12 @@ class EnhancedDiagramGenerator:
                 with Cluster("STG Layer", graph_attr={"style": "dotted", "bgcolor": "mistyrose"}):
                     stg_market_table = Bigquery("stg_market_raw")
                     stg_weather_table = Bigquery("stg_weather_observation")
+                    stg_predictions_table = Bigquery("stg_price_pred")
                     
                 with Cluster("MART Layer", graph_attr={"style": "dotted", "bgcolor": "lavenderblush"}):
                     mart_dims = Bigquery("Dimensions\n(5 tables)")
-                    mart_facts = Bigquery("Facts\n(2 tables)")
-                    mart_analysis = Bigquery("Analysis Marts\n(4 tables)")
+                    mart_facts = Bigquery("Facts\n(3 tables)")
+                    mart_analysis = Bigquery("Analysis Marts\n(3 tables)")
             
             # データフロー（階層別・色分け）
             market_site >> Edge(label="Excel Download", style="bold", color="blue") >> market_collector
@@ -341,7 +348,7 @@ class EnhancedDiagramGenerator:
         # 機械学習・予測システム詳細図を生成
         filename = f"{self.config.output_dir}/ml_architecture_v2"
         
-        with Diagram("ML Prediction System Architecture", 
+        with Diagram("機械学習バッチ予測システム", 
                      filename=filename, 
                      show=self.config.enable_show, 
                      direction=self.config.default_direction, 
@@ -353,66 +360,73 @@ class EnhancedDiagramGenerator:
                      )):
             
             # データソース層
-            with Cluster("BigQuery Data Marts"):
-                price_weather_mart = Bigquery("mart_price_weather\nIntegrated Analysis")
-                seasonal_mart = Bigquery("mart_seasonal_analysis\nSeasonality Patterns")
+            with Cluster("BigQuery データマート"):
+                price_weather_mart = Bigquery("mart_price_weather\n価格・気象統合データ")
+                seasonal_mart = Bigquery("mart_seasonal_analysis\n季節性分析データ")
             
             # 機械学習パイプライン
-            with Cluster("ML Pipeline"):
+            with Cluster("機械学習パイプライン"):
                 # データ前処理
-                data_processor = ComputeEngine("Feature Engineering\n& Data Preprocessing")
+                data_processor = ComputeEngine("特徴量エンジニアリング\n& データ前処理")
                 
                 # モデル群
-                with Cluster("Time Series Models"):
-                    prophet_model = AIPlatform("Prophet Model\n(Facebook)")
-                    lstm_model = AIPlatform("LSTM Model\n(Deep Learning)")
-                    arima_model = AIPlatform("ARIMA Model\n(Statistics)")
+                with Cluster("時系列予測 & 機械学習モデル"):
+                    prophet_model = AIPlatform("Prophet\n(時系列)")
+                    lstm_model = AIPlatform("LSTM\n(深層学習)")
+                    arima_model = AIPlatform("ARIMA\n(統計的)")
+                    rf_model = AIPlatform("Random Forest\n(アンサンブル)")
+                    gb_model = AIPlatform("Gradient Boosting\n(勾配ブースティング)")
+                    lr_model = AIPlatform("Linear Regression\n(ベースライン)")
                     
                 # モデル評価・選択
-                model_evaluator = AIPlatform("Model Evaluation\n& Selection")
-                hyperparameter_tuner = Automl("Hyperparameter\nTuning")
+                model_evaluator = AIPlatform("モデル評価\n& 選択")
+                hyperparameter_tuner = Automl("ハイパーパラメータ\nチューニング")
             
-            # 予測APIサービス層
-            with Cluster("Prediction API Service"):
-                prediction_api = AppEngine("FastAPI Server\nPrediction Endpoints")
-                model_store = GCS("Model Storage\n(Trained Models)")
-                cache_layer = Redis("Prediction Cache\n(Redis)")
+            # 予測・通知サービス層
+            with Cluster("予測・通知サービス"):
+                batch_processor = ComputeEngine("MLバッチ処理\n(ml_batch.py)")
+                model_store = GCS("モデル保存\n(学習済みモデル)")
+                slack_service = Server("Slack通知\n(slack_notif.py)")
                 
             # 利用者・システム層
-            with Cluster("Users & Systems"):
-                api_clients = Users("API Clients")
-                dashboard_users = Users("Dashboard Users")
-                business_analysts = Users("Business Analysts")
+            with Cluster("利用者・システム"):
+                business_users = Users("ビジネスユーザー")
+                data_analysts = Users("データアナリスト")
                 
-            # CI/CD & Monitoring
-            with Cluster("Operations"):
-                model_monitor = Server("Model Monitoring\n& Alerts")
+            # 運用・監視層
+            with Cluster("運用・監視"):
+                cost_monitor = Server("コスト監視\n(cost_monitor.py)")
+                github_actions = Server("GitHub Actions\n(月次パイプライン)")
                 
             # データフロー（エッジラベル付き）
-            price_weather_mart >> Edge(label="Training Data") >> data_processor
-            seasonal_mart >> Edge(label="Feature Data") >> data_processor
+            price_weather_mart >> Edge(label="学習データ") >> data_processor
+            seasonal_mart >> Edge(label="特徴量データ") >> data_processor
             
-            data_processor >> Edge(label="Processed Features") >> prophet_model
-            data_processor >> Edge(label="Processed Features") >> lstm_model
-            data_processor >> Edge(label="Processed Features") >> arima_model
+            data_processor >> Edge(label="前処理済み特徴量") >> prophet_model
+            data_processor >> Edge(label="前処理済み特徴量") >> lstm_model
+            data_processor >> Edge(label="前処理済み特徴量") >> arima_model
+            data_processor >> Edge(label="前処理済み特徴量") >> rf_model
+            data_processor >> Edge(label="前処理済み特徴量") >> gb_model
+            data_processor >> Edge(label="前処理済み特徴量") >> lr_model
             
-            prophet_model >> Edge(label="Model Outputs") >> model_evaluator
-            lstm_model >> Edge(label="Model Outputs") >> model_evaluator
-            arima_model >> Edge(label="Model Outputs") >> model_evaluator
-            model_evaluator >> Edge(label="Best Model") >> hyperparameter_tuner
+            prophet_model >> Edge(label="予測結果") >> model_evaluator
+            lstm_model >> Edge(label="予測結果") >> model_evaluator
+            arima_model >> Edge(label="予測結果") >> model_evaluator
+            rf_model >> Edge(label="予測結果") >> model_evaluator
+            gb_model >> Edge(label="予測結果") >> model_evaluator
+            lr_model >> Edge(label="予測結果") >> model_evaluator
             
-            hyperparameter_tuner >> Edge(label="Optimized Model") >> model_store
-            model_store >> Edge(label="Load Model") >> prediction_api
+            model_evaluator >> Edge(label="最適モデル") >> hyperparameter_tuner
+            hyperparameter_tuner >> Edge(label="調整済みモデル") >> model_store
             
-            prediction_api >> Edge(label="Cache Results") >> cache_layer
+            github_actions >> Edge(label="月次実行") >> batch_processor
+            batch_processor >> Edge(label="モデル読み込み") >> model_store
+            batch_processor >> Edge(label="予測実行") >> slack_service
             
-            api_clients >> Edge(label="API Requests") >> prediction_api
-            prediction_api >> Edge(label="Predictions") >> api_clients
+            slack_service >> Edge(label="通知") >> business_users
+            data_analysts >> Edge(label="分析クエリ") >> price_weather_mart
             
-            dashboard_users >> Edge(label="Analytics Query") >> price_weather_mart
-            business_analysts >> Edge(label="Reports") >> seasonal_mart
-            
-            prediction_api >> Edge(label="Metrics") >> model_monitor
+            cost_monitor >> Edge(label="使用量監視") >> price_weather_mart
         
         return f"{filename}.{self.config.image_format}"
     
@@ -524,13 +538,13 @@ def main():
                 print(f"  - {result.diagram_name}: {result.error}")
         
         if len(successful_diagrams) == len(results):
-            print(f"\n🎉 全ての図表が正常に生成されました！")
+            print(f"\n[SUCCESS] 全ての図表が正常に生成されました！")
             return 0
         elif successful_diagrams:
             print(f"\n[WARNING] 部分的成功: {len(successful_diagrams)}/{len(results)}図表")
             return 1
         else:
-            print(f"\n💥 全ての図表生成に失敗しました")
+            print(f"\n[ERROR] 全ての図表生成に失敗しました")
             return 1
             
     except Exception as e:
